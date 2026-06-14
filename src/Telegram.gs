@@ -3,8 +3,16 @@
  * Se diseñó para que responda de forma natural, detallada y "humana" hacia Jorge.
  */
 
-const TELEGRAM_BOT_TOKEN = "8644658336:AAE24l16yozHRUrsNlhw6v2GteXv9u3-5zE"; // Se reemplazará luego por PropertiesService
-const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+/**
+ * Retorna el token de Telegram desde PropertiesService
+ */
+const getTelegramToken = () => {
+  const token = PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN');
+  if (!token) throw new Error("Falta configurar TELEGRAM_BOT_TOKEN en las propiedades del script.");
+  return token;
+};
+
+const getTelegramApiUrl = () => `https://api.telegram.org/bot${getTelegramToken()}`;
 
 /**
  * Envía un mensaje de texto al chat de Jorge en Telegram.
@@ -26,7 +34,7 @@ const sendTelegramMessage = (chatId, text) => {
       muteHttpExceptions: true
     };
     
-    const url = `${TELEGRAM_API_URL}/sendMessage`;
+    const url = `${getTelegramApiUrl()}/sendMessage`;
     const response = UrlFetchApp.fetch(url, options);
     
     if (response.getResponseCode() !== 200) {

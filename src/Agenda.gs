@@ -3,17 +3,41 @@
  * Permite crear, modificar y eliminar eventos para la universidad, la barbería y compromisos.
  */
 
-const CALENDAR_BARBERIA_ID = "2930d60cbc2cb37c06e4ec922a2a1bae92c161be822ba8c71a978840a0258566@group.calendar.google.com"; 
-const CALENDAR_UNI_ID = "06dc73a8b7f520cf60faa91d99e1db50b6cd5658efd7bed27b526cedd19789fc@group.calendar.google.com";
-const CALENDAR_COMPROMISOS_ID = "42365440fe91167a9448a51273a6448c2671608198d524fdac898e172de885c8@group.calendar.google.com";
+const getCalendarId = (key) => {
+  const id = PropertiesService.getScriptProperties().getProperty(key);
+  if (!id) throw new Error(`Falta configurar ${key} en PropertiesService.`);
+  return id;
+};
 
 /**
  * Retorna el calendario objetivo basado en la clasificación de Gemini
  */
 const getCalendarTarget = (calendarioType) => {
-  if (calendarioType === "UNIVERSIDAD") return CalendarApp.getCalendarById(CALENDAR_UNI_ID);
-  if (calendarioType === "COMPROMISOS") return CalendarApp.getCalendarById(CALENDAR_COMPROMISOS_ID);
-  return CalendarApp.getCalendarById(CALENDAR_BARBERIA_ID); // Default
+  if (calendarioType === "UNIVERSIDAD") return CalendarApp.getCalendarById(getCalendarId('CALENDAR_UNI_ID'));
+  if (calendarioType === "COMPROMISOS") return CalendarApp.getCalendarById(getCalendarId('CALENDAR_COMPROMISOS_ID'));
+  return CalendarApp.getCalendarById(getCalendarId('CALENDAR_BARBERIA_ID')); // Default
+};
+
+/**
+ * Verifica si hay eventos superpuestos en cualquiera de los 3 calendarios
+ */
+const _verificarChoques = (startTime, endTime) => {
+  const keys = ['CALENDAR_UNI_ID', 'CALENDAR_BARBERIA_ID', 'CALENDAR_COMPROMISOS_ID'];
+  const choques = [];
+  
+  for (const key of keys) {
+    const calId = PropertiesService.getScriptProperties().getProperty(key);
+    if (!calId) continue;
+    
+    const cal = CalendarApp.getCalendarById(calId);
+    if (cal) {
+      const events = cal.getEvents(startTime, endTime);
+      for (const e of events) {
+        choques.push(e.getTitle());
+      }
+    }
+  }
+  return choques;
 };
 
 /**
@@ -50,6 +74,14 @@ const _buscarEventoUnico = (accion, calendar) => {
 const crearEvento = (accion, calendar) => {
   const startTime = _parseDateTime(accion.fecha_estimada, accion.hora_estimada);
   const endTime = new Date(startTime.getTime() + (60 * 60 * 1000)); // 1 hora
+  
+  if (!accion.ignorar_choques) {
+    const choques = _verificarChoques(startTime, endTime);
+    if (choques.length > 0) {
+      throw new Error(`⚠️ ¡Cuidado Jefe! Tienes un choque de horario con: "${choques.join(", ")}". No lo he agendado por precaución. Si quieres que lo agende de todas formas, solo confírmamelo (ej: "dale nomás", "agéndalo igual").`);
+    }
+  }
+
   const event = calendar.createEvent(accion.evento, startTime, endTime);
   console.log(`[AGENDA] Creado: ${accion.evento} el ${startTime}`);
 };

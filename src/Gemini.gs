@@ -4,7 +4,14 @@
  * que Apps Script pueda leer, y genera la respuesta natural para Telegram.
  */
 
-const GEMINI_API_KEY = "AIzaSyDIhQTQzpcXKHx1sdP4R95NY7BO2HfLwQY"; // Se debe configurar luego
+/**
+ * Retorna la API KEY de Gemini desde PropertiesService
+ */
+const getGeminiApiKey = () => {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error("Falta configurar GEMINI_API_KEY en las propiedades del script.");
+  return key;
+};
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 /**
@@ -30,6 +37,12 @@ const parseMessageWithGemini = (text) => {
         "acciones": [
           { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string", "negocio": "BARBERIA|DECANTS" },
           { 
+            "tipo": "REPORTE", 
+            "subtipo": "FINANZAS", 
+            "fecha_inicio": "YYYY-MM-DD", 
+            "fecha_fin": "YYYY-MM-DD" 
+          },
+          { 
             "tipo": "AGENDA", 
             "subtipo": "CREAR|MODIFICAR|ELIMINAR", 
             "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", 
@@ -38,7 +51,8 @@ const parseMessageWithGemini = (text) => {
             "hora_estimada": "HH:MM",
             "nuevo_evento": "string (solo para MODIFICAR si cambia el nombre)",
             "nueva_fecha": "YYYY-MM-DD (solo para MODIFICAR)",
-            "nueva_hora": "HH:MM (solo para MODIFICAR)"
+            "nueva_hora": "HH:MM (solo para MODIFICAR)",
+            "ignorar_choques": true/false // (true si el usuario indica de cualquier forma natural que quiere agendar a pesar de advertencias o choques, ej: 'dale', 'agéndalo igual', 'no importa')
           }
         ],
         "respuesta_telegram": "Una respuesta muy natural, amigable, de un asistente a su jefe, confirmando TODO lo que se hará, con detalles y emojis. No uses lenguaje de robot."
@@ -72,7 +86,7 @@ const parseMessageWithGemini = (text) => {
     let attempt = 0;
 
     while (attempt < retries) {
-      response = UrlFetchApp.fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, options);
+      response = UrlFetchApp.fetch(`${GEMINI_API_URL}?key=${getGeminiApiKey()}`, options);
       responseCode = response.getResponseCode();
       
       if (responseCode === 200) {

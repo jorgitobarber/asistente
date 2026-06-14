@@ -59,6 +59,8 @@ const doPost = (e) => {
         registrarFinanzas(accion, fechaActual);
       } else if (accion.tipo === "AGENDA") {
         procesarAgenda(accion);
+      } else if (accion.tipo === "REPORTE") {
+        generarReporteBajoDemanda(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
       }

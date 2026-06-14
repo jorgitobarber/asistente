@@ -3,7 +3,14 @@
  * Se encarga de insertar los gastos o ingresos correspondientes.
  */
 
-const SHEET_ID = "1CYVY3Ev7Lfql8lvukJdHK5BccAAKy44V4qqQAHPeS_w"; // Se configurará luego
+/**
+ * Retorna el ID de la hoja de cálculo desde PropertiesService
+ */
+const getSheetId = () => {
+  const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  if (!id) throw new Error("Falta configurar SHEET_ID en las propiedades del script.");
+  return id;
+};
 
 /**
  * Inserta un registro financiero en la pestaña correcta.
@@ -16,7 +23,7 @@ const registrarFinanzas = (accionFinanzas, fechaActual) => {
     const sheetName = accionFinanzas.negocio === "DECANTS" ? "Finanzas_Decants" : "Finanzas_Barberia";
     
     // Abrimos el Spreadsheet (costo $0, nativo de GAS)
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const ss = SpreadsheetApp.openById(getSheetId());
     let sheet = ss.getSheetByName(sheetName);
     
     if (!sheet) {
