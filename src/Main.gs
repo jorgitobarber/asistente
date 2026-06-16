@@ -14,7 +14,7 @@ const doPost = (e) => {
     // 1. Validar que la petición tenga datos
     if (!e || !e.postData || !e.postData.contents) {
       console.error("[MAIN] Petición POST vacía o inválida recibida.");
-      return HtmlService.createHtmlOutput("OK"); // Respondemos OK a Telegram para que no reintente
+      return ContentService.createTextOutput("OK"); // Respondemos OK a Telegram para que no reintente
     }
 
     const payload = JSON.parse(e.postData.contents);
@@ -24,7 +24,7 @@ const doPost = (e) => {
     
     if (!messageData) {
       console.log("[MAIN] Payload no contiene message. Ignorando.");
-      return HtmlService.createHtmlOutput("OK");
+      return ContentService.createTextOutput("OK");
     }
 
     chatId = messageData.chat.id;
@@ -35,13 +35,13 @@ const doPost = (e) => {
 
     if (!userText) {
       console.log("[MAIN] Mensaje sin texto, se ignora por ahora.");
-      return HtmlService.createHtmlOutput("OK");
+      return ContentService.createTextOutput("OK");
     }
 
     // 2. Control de Idempotencia (Evitar duplicados)
     if (!isNewTelegramMessage(updateId)) {
       // Es un duplicado, ignoramos silenciosamente
-      return HtmlService.createHtmlOutput("OK");
+      return ContentService.createTextOutput("OK");
     }
 
     console.log(`[MAIN] Procesando nuevo mensaje de ${chatId}: "${userText.substring(0, 50)}..."`);
@@ -70,7 +70,7 @@ const doPost = (e) => {
     sendTelegramMessage(chatId, respuestaParaJorge);
 
     // Confirmar a la API de Telegram que todo fue bien
-    return HtmlService.createHtmlOutput("OK");
+    return ContentService.createTextOutput("OK");
 
   } catch (error) {
     console.error(`[MAIN] ERROR CRÍTICO: ${error.message}\nStack: ${error.stack}`);
@@ -81,7 +81,7 @@ const doPost = (e) => {
     }
     
     // A pesar del error, respondemos 200 OK a Telegram para detener los reintentos en bucle.
-    return HtmlService.createHtmlOutput("OK");
+    return ContentService.createTextOutput("OK");
   }
 };
 

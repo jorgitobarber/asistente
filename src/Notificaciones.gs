@@ -53,7 +53,7 @@ const enviarResumenMatutino = () => {
  * Función auxiliar para pedir texto libre a Gemini
  */
 const _pedirTextoAGemini = (prompt) => {
-  const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+  const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { responseMimeType: "text/plain" }
