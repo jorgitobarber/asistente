@@ -76,3 +76,17 @@ const test_Telegram = () => {
   
   console.log("--- Fin test_Telegram ---");
 };
+
+/**
+ * Registra automáticamente el Webhook en Telegram usando la URL pública de este Apps Script.
+ */
+const configurarWebhook = () => {
+  const webAppUrl = "https://script.google.com/macros/s/AKfycbwIxwlWlEEtFxvp5kJRFtjxvwzcf97Fh2JUnx4Xesy0n19g73Z52Eyicffeef-qbBnX/exec";
+  if (!webAppUrl || !webAppUrl.startsWith("https")) {
+    console.error("⚠️ Debes implementar este proyecto como 'Aplicación Web' primero para obtener una URL válida.");
+    return;
+  }
+  const telegramUrl = `${getTelegramApiUrl()}/setWebhook?url=${webAppUrl}`;
+  const response = UrlFetchApp.fetch(telegramUrl);
+  console.log(`[TELEGRAM WEBHOOK] Resultado: ${response.getContentText()}`);
+};

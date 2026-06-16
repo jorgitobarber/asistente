@@ -53,16 +53,39 @@ const _parseDateTime = (fechaStr, horaStr) => {
  * Busca un evento en el día especificado que coincida con el nombre
  */
 const _buscarEventoUnico = (accion, calendar) => {
-  const startOfDay = _parseDateTime(accion.fecha_estimada, "00:00");
-  const endOfDay = new Date(startOfDay.getTime() + (24 * 60 * 60 * 1000));
+  let startSearch, endSearch;
+  let searchTitle = accion.evento;
+
+  // Si tenemos fecha y hora original, buscamos exactamente en esa hora
+  if (accion.fecha_original && accion.hora_original) {
+    startSearch = _parseDateTime(accion.fecha_original, accion.hora_original);
+    // Un margen de 1 minuto para que encuentre el evento que empieza a esa hora
+    endSearch = new Date(startSearch.getTime() + (60 * 1000));
+  } else {
+    // Fallback: buscamos en todo el día de la fecha estimada
+    const fecha = accion.fecha_original || accion.fecha_estimada;
+    startSearch = _parseDateTime(fecha, "00:00");
+    endSearch = new Date(startSearch.getTime() + (24 * 60 * 60 * 1000));
+  }
   
-  const events = calendar.getEvents(startOfDay, endOfDay, { search: accion.evento });
+  let events;
+  if (searchTitle && searchTitle.trim() !== "") {
+    events = calendar.getEvents(startSearch, endSearch, { search: searchTitle });
+  } else {
+    events = calendar.getEvents(startSearch, endSearch);
+  }
+
+  // Si aún así no encuentra, intentamos solo por tiempo sin el título (puede que el usuario no lo haya dicho exacto)
+  if (events.length === 0 && accion.fecha_original && accion.hora_original) {
+    events = calendar.getEvents(startSearch, endSearch);
+  }
   
   if (events.length === 0) {
-    throw new Error(`No se encontró el evento "${accion.evento}" el ${accion.fecha_estimada} en este calendario.`);
+    throw new Error(`No se encontró el evento programado para el ${accion.fecha_original || accion.fecha_estimada} a las ${accion.hora_original || ""}.`);
   }
   if (events.length > 1) {
-    console.warn(`[AGENDA] Múltiples eventos encontrados para "${accion.evento}". Modificando/Eliminando el primero.`);
+    const opciones = events.map(e => `- ${e.getTitle()} (${e.getStartTime().getHours()}:${e.getStartTime().getMinutes().toString().padStart(2, '0')})`).join("\n");
+    throw new Error(`Encontré varios eventos en ese horario. Por favor sé más específico. ¿Cuál de estos es?\n${opciones}`);
   }
   
   return events[0];
@@ -97,10 +120,11 @@ const modificarEvento = (accion, calendar) => {
   }
   
   if (accion.nueva_fecha || accion.nueva_hora) {
-    const newFecha = accion.nueva_fecha || accion.fecha_estimada;
+    const oldStart = event.getStartTime();
+    const fallbackFecha = `${oldStart.getFullYear()}-${(oldStart.getMonth()+1).toString().padStart(2,'0')}-${oldStart.getDate().toString().padStart(2,'0')}`;
+    const newFecha = accion.nueva_fecha || fallbackFecha;
     
     // Si no mandan hora nueva, mantenemos la que ya tenía el evento
-    const oldStart = event.getStartTime();
     const fallbackHora = `${oldStart.getHours().toString().padStart(2, '0')}:${oldStart.getMinutes().toString().padStart(2, '0')}`;
     const newHora = accion.nueva_hora || fallbackHora;
     

@@ -1,70 +1,76 @@
 /**
  * Módulo Finanzas: Maneja la conexión con Google Sheets.
- * Se encarga de insertar los gastos o ingresos correspondientes.
+ * Se encarga de insertar los gastos, ingresos y clientes del día.
  */
 
-/**
- * Retorna el ID de la hoja de cálculo desde PropertiesService
- */
+const PRECIOS_BARBERIA = {
+  "Corte": 10000,
+  "Corte + Barba": 15000,
+  "Perfilado de cejas": 1000,
+  "Diseño": 1000,
+  "Cera": 5000,
+  "Texturizador": 5000
+};
+
 const getSheetId = () => {
   const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) throw new Error("Falta configurar SHEET_ID en las propiedades del script.");
   return id;
 };
 
-/**
- * Inserta un registro financiero en la pestaña correcta.
- * 
- * @param {object} accionFinanzas - Objeto parseado por Gemini (tipo, subtipo, monto, descripcion, negocio).
- * @param {Date} fechaActual - Fecha en la que ocurre el registro.
- */
-const registrarFinanzas = (accionFinanzas, fechaActual) => {
+const _getOrCreateSheet = (ss, name, headers) => {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+  }
+  return sheet;
+};
+
+const registrarFinanzas = (accion, fechaActual) => {
   try {
-    const sheetName = accionFinanzas.negocio === "DECANTS" ? "Finanzas_Decants" : "Finanzas_Barberia";
-    
-    // Abrimos el Spreadsheet (costo $0, nativo de GAS)
     const ss = SpreadsheetApp.openById(getSheetId());
-    let sheet = ss.getSheetByName(sheetName);
     
-    if (!sheet) {
-      throw new Error(`No se encontró la pestaña: ${sheetName}. Verifica tu archivo Sheets.`);
+    const fecha = fechaActual.toLocaleDateString('es-CL');
+    const hora = fechaActual.toLocaleTimeString('es-CL');
+
+    if (accion.subtipo === "GASTO") {
+      const sheet = _getOrCreateSheet(ss, "Gastos", ["fecha", "hora", "descripción", "monto"]);
+      sheet.appendRow([fecha, hora, accion.descripcion, accion.monto]);
+      console.log(`[FINANZAS] Gasto registrado: $${accion.monto} - ${accion.descripcion}`);
+    } 
+    else if (accion.subtipo === "INGRESO") {
+      const sheet = _getOrCreateSheet(ss, "Ingresos", ["fecha", "hora", "descripción", "monto"]);
+      sheet.appendRow([fecha, hora, accion.descripcion, accion.monto]);
+      console.log(`[FINANZAS] Ingreso registrado: $${accion.monto} - ${accion.descripcion}`);
     }
-
-    // Formato de fila: [Fecha, Tipo (Gasto/Ingreso), Monto, Descripción]
-    const rowData = [
-      fechaActual.toLocaleString('es-CL'), // Fecha formateada para Chile (aproximado)
-      accionFinanzas.subtipo,
-      accionFinanzas.monto,
-      accionFinanzas.descripcion
-    ];
-
-    sheet.appendRow(rowData);
-    console.log(`[FINANZAS] Registro exitoso en ${sheetName}: $${accionFinanzas.monto} - ${accionFinanzas.descripcion}`);
+    else if (accion.subtipo === "CLIENTE_DIA") {
+      const sheet = _getOrCreateSheet(ss, "Clientes_del_dia", ["fecha", "hora_cita", "reportado", "servicios", "productos", "total"]);
+      
+      let total = 0;
+      const servicios = accion.servicios || [];
+      const productos = accion.productos || [];
+      
+      servicios.forEach(s => {
+        if (PRECIOS_BARBERIA[s]) total += PRECIOS_BARBERIA[s];
+      });
+      productos.forEach(p => {
+        if (PRECIOS_BARBERIA[p]) total += PRECIOS_BARBERIA[p];
+      });
+      
+      sheet.appendRow([
+        fecha,
+        accion.hora_cita || hora,
+        "sí",
+        servicios.join(", "),
+        productos.join(", "),
+        total
+      ]);
+      console.log(`[FINANZAS] Cliente registrado: Hora ${accion.hora_cita || hora}, Total $${total}`);
+    }
 
   } catch (error) {
     console.error(`[FINANZAS] Error en registrarFinanzas: ${error.message}`);
-    throw error; // Propagamos a Main.gs
+    throw error;
   }
-};
-
-/**
- * Función de prueba local
- */
-const test_Finanzas = () => {
-  console.log("--- Iniciando test_Finanzas ---");
-  const mockAccion = {
-    tipo: "FINANZAS",
-    subtipo: "GASTO",
-    monto: 20000,
-    descripcion: "Compra de navajas de prueba",
-    negocio: "BARBERIA"
-  };
-  
-  try {
-    // Fallará si no hay un SHEET_ID real o permisos, pero el try/catch funcionará
-    registrarFinanzas(mockAccion, new Date());
-  } catch (e) {
-    console.log("Prueba capturó error esperado (Falta ID de Sheet):", e.message);
-  }
-  console.log("--- Fin test_Finanzas ---");
 };

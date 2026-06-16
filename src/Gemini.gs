@@ -35,13 +35,11 @@ const parseMessageWithGemini = (text) => {
       Debes devolver UNICAMENTE un JSON válido con esta estructura:
       {
         "acciones": [
-          { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string", "negocio": "BARBERIA|DECANTS" },
-          { 
-            "tipo": "REPORTE", 
-            "subtipo": "FINANZAS", 
-            "fecha_inicio": "YYYY-MM-DD", 
-            "fecha_fin": "YYYY-MM-DD" 
-          },
+          { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string" },
+          { "tipo": "FINANZAS", "subtipo": "CLIENTE_DIA", "servicios": ["Corte", "Corte + Barba", "Perfilado de cejas", "Diseño", "Cera", "Texturizador"], "productos": ["Cera", "Texturizador"], "hora_cita": "HH:MM" },
+          { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
+          { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
+          { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
           { 
             "tipo": "AGENDA", 
             "subtipo": "CREAR|MODIFICAR|ELIMINAR", 
@@ -49,16 +47,26 @@ const parseMessageWithGemini = (text) => {
             "evento": "string", 
             "fecha_estimada": "YYYY-MM-DD", 
             "hora_estimada": "HH:MM",
+            "fecha_original": "YYYY-MM-DD (para buscar en MODIFICAR/ELIMINAR)",
+            "hora_original": "HH:MM (para buscar en MODIFICAR/ELIMINAR)",
             "nuevo_evento": "string (solo para MODIFICAR si cambia el nombre)",
             "nueva_fecha": "YYYY-MM-DD (solo para MODIFICAR)",
             "nueva_hora": "HH:MM (solo para MODIFICAR)",
-            "ignorar_choques": true/false // (true si el usuario indica de cualquier forma natural que quiere agendar a pesar de advertencias o choques, ej: 'dale', 'agéndalo igual', 'no importa')
+            "ignorar_choques": true
           }
         ],
-        "respuesta_telegram": "Una respuesta muy natural, amigable, de un asistente a su jefe, confirmando TODO lo que se hará, con detalles y emojis. No uses lenguaje de robot."
+        "respuesta_telegram": "Una respuesta muy natural, amigable, de un asistente a su jefe, confirmando TODO lo que se hará, con detalles y emojis. ATENCION: Si la accion es REPORTE -> AGENDA, en esta respuesta pon SOLO un mensaje corto tipo 'Déjame revisar tu agenda jefe, un segundo...' porque luego se generará otro mensaje con el detalle."
       }
       
+      Si el usuario reporta un cliente ya atendido (ej. 'Ya vino el cliente de las 3, se hizo corte y barba y llevó cera'), extrae los servicios exactos y usa CLIENTE_DIA. Los precios se calcularán internamente.
+      Si el usuario pide un resumen financiero ('cuánto gasté hoy', 'cómo voy esta semana', 'cierre del día'), usa REPORTE -> FINANZAS con el periodo adecuado.
+      Si el usuario pregunta qué tiene que hacer en su calendario, qué eventos tiene, o cómo está su agenda (ej. 'qué tengo mañana', 'qué clientes vienen hoy', 'revisa mis clases'), usa REPORTE -> AGENDA con el periodo.
+      Si el usuario pregunta qué tiene que hacer (To-Do list) sin hablar de horas o citas, usa TODO -> LISTAR con el periodo (HOY, MANANA, SEMANA, TODAS).
+      
       Si no hay acciones, "acciones" debe ser un array vacío.
+      
+      REGLA CRÍTICA DE FORMATO JSON:
+      Para evitar errores de parseo, NUNCA uses comillas dobles (") dentro de los valores de texto. Si necesitas enfatizar algo en tu respuesta_telegram, usa SOLO comillas simples ('). Asegúrate de poner todas las comas necesarias entre propiedades.
     `;
 
     const payload = {
