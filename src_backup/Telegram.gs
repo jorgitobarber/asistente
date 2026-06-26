@@ -24,7 +24,8 @@ const sendTelegramMessage = (chatId, text) => {
   try {
     const payload = {
       chat_id: chatId,
-      text: text
+      text: text,
+      parse_mode: 'Markdown'
     };
     
     const options = {

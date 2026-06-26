@@ -8,7 +8,7 @@
 - **Backend / Webhook:** Google Apps Script (V8).
 - **Caché / Idempotencia:** Google CacheService (Para evitar procesar mensajes duplicados de Telegram).
 - **Procesamiento NLP:** Gemini API (Clasificador de intenciones multi-acción).
-- **Base de Datos:** Google Sheets (Pestañas: `Finanzas_Barberia`, `Finanzas_Decants`).
+- **Base de Datos:** Google Sheets (Pestañas: `Gastos`, `Ingresos`, `Clientes_del_dia`, `To_Do`).
 - **Gestión de Tiempo:** Google Calendar (Calendarios: `Barberia`, `Universidad`).
 
 ## 2. Flujo Lógico Optimizado (Diagrama)
