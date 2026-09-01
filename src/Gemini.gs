@@ -89,7 +89,8 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
     { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
     { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
     { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
-    { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true }
+    { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
+    { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" }
   ],
   "respuesta_telegram": "Respuesta natural y amigable confirmando lo que se hará, con emojis. Si la accion es REPORTE->AGENDA, pon solo un mensaje corto tipo 'Dejame revisar tu agenda jefe, un segundo...' porque luego se genera otro mensaje con el detalle."
 }
@@ -99,7 +100,10 @@ Si no hay acciones, "acciones" debe ser un array vacío.
 REGLAS CRITICAS DE JSON:
 1. JSON estrictamente válido, sin comas al final.
 2. Nunca uses comillas dobles dentro de valores de texto.
-3. Sin saltos de línea dentro de strings.`;
+3. Sin saltos de línea dentro de strings.
+
+DETECTAR CUANDO JORGE CONFIRMA QUE CONTACTÓ A LOS CLIENTES:
+Si Jorge escribe algo que signifique que ya mandó los mensajes a los clientes pendientes (ej: "contactos hecho", "ya les mandé", "listos", "confirmado"), retorna una acción con tipo: "CLIENTES" y subtipo: "CONTACTOS_CONFIRMADO".`;
 
   try {
     const response = _callAnthropicWithRetry(systemPrompt, text, 3);

@@ -36,7 +36,15 @@ const enviarResumenMatutino = () => {
       }
     } catch(e) {}
 
-    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ Clientes Barbería:\n" + (agendaBarberia || "Sin clientes hoy 🙌") + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + "\n\nHazlo motivacional, amigable y con emojis.";
+    // Obtener lista de clientes a recuperar
+    let clientesPendientes = "";
+    try {
+      clientesPendientes = obtenerResumenClientesPendientes();
+    } catch(e) {
+      clientesPendientes = "No pude traer la lista de clientes.";
+    }
+
+    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ Clientes Barbería:\n" + (agendaBarberia || "Sin clientes hoy 🙌") + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + "\n\n📞 RECUPERACIÓN DE CLIENTES:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis.";
 
     const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
     if (!chatId) return;
@@ -124,7 +132,18 @@ const enviarCierreDiario = () => {
     const agendaManana = _getEventsString(getCalendarId('CALENDAR_BARBERIA_ID'), manana) + _getEventsString(getCalendarId('CALENDAR_UNI_ID'), manana) + _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), manana) + tareasPendientes;
     const agendaSemana = _getEventsString(getCalendarId('CALENDAR_UNI_ID'), manana, enUnaSemana) + _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), manana, enUnaSemana);
 
-    const prompt = "Redacta el cierre de las 10:30 PM para Jorge.\nBarbería hoy: reportó " + reportados + " clientes. Ingresos: $" + finanzasDia.ingresos + ", Gastos: $" + finanzasDia.gastos + ", Balance: $" + finanzasDia.balance + ".\nMañana: " + (agendaManana || "Día libre") + "\nSemana (próx 7 días): " + (agendaSemana || "Nada relevante") + "\nHazlo conversacional y amigable.";
+    // Obtener lista de clientes a los que se debería haber contactado
+    let preguntaContactos = "";
+    try {
+      const pendientes = obtenerClientesPendientes();
+      if (pendientes.length > 0) {
+        preguntaContactos = "\n\n❓ Pregunta de la noche:\n¿Ya contactaste a estos clientes que aparecieron en la mañana?\nResponde 'contactos hecho' cuando termines y los marco para que no te los repita mañana.";
+      }
+    } catch(e) {
+      console.error("No pude traer la lista de clientes para la pregunta nocturna.");
+    }
+
+    const prompt = "Redacta el cierre de las 10:30 PM para Jorge.\nBarbería hoy: reportó " + reportados + " clientes. Ingresos: $" + finanzasDia.ingresos + ", Gastos: $" + finanzasDia.gastos + ", Balance: $" + finanzasDia.balance + ".\nMañana: " + (agendaManana || "Día libre") + "\nSemana (próx 7 días): " + (agendaSemana || "Nada relevante") + "\nHazlo conversacional y amigable." + preguntaContactos;
 
     const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
     if (!chatId) return;

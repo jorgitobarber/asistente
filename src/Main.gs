@@ -74,6 +74,10 @@ const doPost = (e) => {
         }
       } else if (accion.tipo === "TODO") {
         procesarToDo(accion, chatId);
+      } else if (accion.tipo === "CLIENTES") {
+        if (accion.subtipo === "CONTACTOS_CONFIRMADO") {
+          procesarContactosConfirmados(chatId);
+        }
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
       }
