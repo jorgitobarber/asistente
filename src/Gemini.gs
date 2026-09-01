@@ -1,64 +1,68 @@
 /**
- * Módulo Claude (reemplaza Gemini): Conexión con la API de Anthropic.
- * Mantiene los mismos nombres de funciones públicas para no romper el resto del proyecto.
+ * Módulo Gemini: Conexión con la API de Google Gemini Flash.
+ * API gratuita vía Google AI Studio (aistudio.google.com) — costo $0.
+ * Mantiene los nombres de funciones públicas para no romper el resto del proyecto.
  */
 
-const getAnthropicApiKey = () => {
-  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  if (!key) throw new Error("Falta configurar ANTHROPIC_API_KEY en las propiedades del script.");
+const getGeminiApiKey = () => {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error("Falta configurar GEMINI_API_KEY en las propiedades del script. Obtener en aistudio.google.com");
   return key;
 };
 
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_MODEL = "claude-haiku-4-5";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
-const _callAnthropicWithRetry = (systemPrompt, userText, maxRetries = 3) => {
+/**
+ * Llama a la API de Gemini con reintentos automáticos ante errores 503/429.
+ */
+const _callGeminiWithRetry = (systemInstruction, userText, maxRetries) => {
+  if (maxRetries === undefined) maxRetries = 3;
+
+  const payload = {
+    contents: [{
+      parts: [{ text: userText }]
+    }],
+    systemInstruction: {
+      parts: [{ text: systemInstruction }]
+    },
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
+  };
+
   const options = {
     method: 'post',
     contentType: 'application/json',
-    headers: {
-      'x-api-key': getAnthropicApiKey(),
-      'anthropic-version': '2023-06-01'
-    },
-    payload: JSON.stringify({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userText }]
-    }),
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
-  let lastError = null;
+  const url = GEMINI_API_URL + "?key=" + getGeminiApiKey();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const response = UrlFetchApp.fetch(ANTHROPIC_API_URL, options);
+    const response = UrlFetchApp.fetch(url, options);
     const code = response.getResponseCode();
 
     if (code === 200) return response;
 
-    const body = response.getContentText();
-
-    if (code === 429) {
-      throw new Error("Límite de quota de Anthropic alcanzado (429). Revisar billing en console.anthropic.com. Detalle: " + body.substring(0, 200));
-    }
-
-    if (code === 529 || code === 503) {
-      lastError = "Error " + code + " en intento " + (attempt + 1);
-      console.warn("[ANTHROPIC] " + lastError);
+    if (code === 429 || code === 503) {
+      console.warn("[GEMINI] Error " + code + " en intento " + (attempt + 1));
       if (attempt < maxRetries - 1) {
-        Utilities.sleep(Math.pow(2, attempt) * 1500);
+        Utilities.sleep(Math.pow(2, attempt) * 2000);
       }
       continue;
     }
 
-    throw new Error("Error API Anthropic. Código: " + code + ", Detalle: " + body.substring(0, 300));
+    throw new Error("Error API Gemini. Código: " + code + ", Detalle: " + response.getContentText().substring(0, 300));
   }
 
-  throw new Error("Error API Anthropic tras " + maxRetries + " intentos. Último: " + lastError);
+  throw new Error("Error API Gemini tras " + maxRetries + " intentos.");
 };
 
-const _parseJson = (rawText) => {
+/**
+ * Limpia y parsea el JSON devuelto por Gemini.
+ */
+const _parseGeminiJson = (rawText) => {
   let clean = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   const first = clean.indexOf('{');
   const last = clean.lastIndexOf('}');
@@ -67,16 +71,20 @@ const _parseJson = (rawText) => {
   try {
     return JSON.parse(clean);
   } catch (e) {
-    const reEscaped = clean.replace(/("(?:[^"\\]|\\.)*")|(\n)/g, (m, s) => s ? s : '\\n');
+    const reEscaped = clean.replace(/(\"(?:[^\"\\]|\\.)*\")|(\n)/g, (m, s) => s ? s : '\\n');
     return JSON.parse(reEscaped);
   }
 };
 
+/**
+ * Procesa el mensaje de Jorge y devuelve un JSON con acciones estructuradas.
+ * Esta es la función principal llamada desde Main.gs.
+ */
 const parseMessageWithGemini = (text) => {
   const hoy = new Date();
   const fechaTexto = hoy.toLocaleString('es-CL', { timeZone: 'America/Santiago' });
 
-  const systemPrompt = `Eres el asistente personal de Jorge (Estudiante de Ingeniería y Dueño de Barbería).
+  const systemInstruction = `Eres el asistente personal de Jorge (Estudiante de Ingeniería y Dueño de Barbería).
 Hoy es ${fechaTexto} (Hora de Chile). Utiliza esta fecha exacta como referencia obligatoria para calcular "hoy", "mañana", "próximo miércoles", etc.
 
 Analiza su mensaje y extrae las acciones necesarias.
@@ -106,40 +114,81 @@ DETECTAR CUANDO JORGE CONFIRMA QUE CONTACTÓ A LOS CLIENTES:
 Si Jorge escribe algo que signifique que ya mandó los mensajes a los clientes pendientes (ej: "contactos hecho", "ya les mandé", "listos", "confirmado"), retorna una acción con tipo: "CLIENTES" y subtipo: "CONTACTOS_CONFIRMADO".`;
 
   try {
-    const response = _callAnthropicWithRetry(systemPrompt, text, 3);
+    const response = _callGeminiWithRetry(systemInstruction, text, 3);
     const data = JSON.parse(response.getContentText());
-    const aiText = data.content[0].text;
-    const result = _parseJson(aiText);
-    console.log("[ANTHROPIC] OK. Acciones: " + (result.acciones ? result.acciones.length : 0));
+
+    if (!data.candidates || !data.candidates[0]) {
+      throw new Error("Gemini no devolvió candidatos: " + response.getContentText().substring(0, 200));
+    }
+
+    const aiText = data.candidates[0].content.parts[0].text;
+    const result = _parseGeminiJson(aiText);
+    console.log("[GEMINI] OK. Acciones: " + (result.acciones ? result.acciones.length : 0));
     return result;
   } catch (error) {
-    console.error("[ANTHROPIC] Error en parseMessageWithGemini: " + error.message);
+    console.error("[GEMINI] Error en parseMessageWithGemini: " + error.message);
     throw error;
   }
 };
 
+/**
+ * Pide texto libre a Gemini (para resúmenes matutinos, cierres, reportes).
+ * Devuelve el texto o el fallback si falla.
+ */
 const pedirTextoAGeminiSeguro = (prompt, fallback) => {
   if (fallback === undefined) fallback = null;
+
+  const systemInstruction = "Eres el asistente personal de Jorge, dueño de barbería y estudiante universitario. Responde siempre en español, de forma amigable y con emojis.";
+
+  const payload = {
+    contents: [{
+      parts: [{ text: prompt }]
+    }],
+    systemInstruction: {
+      parts: [{ text: systemInstruction }]
+    }
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  const url = GEMINI_API_URL + "?key=" + getGeminiApiKey();
+
   try {
-    const response = _callAnthropicWithRetry("Eres el asistente personal de Jorge, dueño de barbería y estudiante universitario. Responde siempre en español, de forma amigable y con emojis.", prompt, 2);
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+
+    if (code !== 200) {
+      console.error("[GEMINI] pedirTextoAGeminiSeguro error " + code);
+      return fallback;
+    }
+
     const data = JSON.parse(response.getContentText());
-    if (data.content && data.content[0] && data.content[0].text) {
-      return data.content[0].text;
+    if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      return data.candidates[0].content.parts[0].text;
     }
     return fallback;
   } catch (e) {
-    console.error("[ANTHROPIC] pedirTextoAGeminiSeguro falló: " + e.message);
+    console.error("[GEMINI] pedirTextoAGeminiSeguro falló: " + e.message);
     return fallback;
   }
 };
 
-const test_Claude = () => {
-  console.log("--- Iniciando test_Claude ---");
+/**
+ * TEST: Prueba la conexión con Gemini
+ */
+const test_Gemini = () => {
+  console.log("--- Iniciando test_Gemini ---");
   try {
-    const resultado = parseMessageWithGemini("Compré 20 lucas en navajas para la barbería y mañana tengo prueba de Cálculo a las 10am");
-    console.log("Resultado:", JSON.stringify(resultado, null, 2));
+    const mensaje = "Compré 20 lucas en navajas para la barbería y mañana tengo prueba de Cálculo a las 10am";
+    const resultado = parseMessageWithGemini(mensaje);
+    console.log("Resultado JSON:", JSON.stringify(resultado, null, 2));
   } catch (error) {
     console.log("Error:", error.message);
   }
-  console.log("--- Fin test_Claude ---");
+  console.log("--- Fin test_Gemini ---");
 };
