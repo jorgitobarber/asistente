@@ -18,61 +18,214 @@ const _getEventsString = (calendarId, date, endDate) => {
   return str;
 };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const _DIAS_ES  = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const _MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+const _fechaTextoCorto = (d) =>
+  `${_DIAS_ES[d.getDay()]} ${d.getDate()} ${_MESES_ES[d.getMonth()]}`;
+
+const _barraProgreso = (pct, largo) => {
+  const n = Math.round(Math.min(100, pct) / 100 * largo);
+  return '█'.repeat(n) + '░'.repeat(Math.max(0, largo - n));
+};
+
+const _progresoSemanal = (ss) => {
+  const hoy     = new Date();
+  const diaSem  = hoy.getDay(); // 0=dom
+  const diasLun = diaSem === 0 ? 6 : diaSem - 1;
+  const lunes   = new Date(hoy);
+  lunes.setDate(hoy.getDate() - diasLun);
+  lunes.setHours(0, 0, 0, 0);
+
+  const fin  = _calcularFinanzasRango(ss, lunes, new Date(hoy));
+  const meta = parseInt(PropertiesService.getScriptProperties().getProperty('META_SEMANAL_BARBERIA') || '0');
+  const pct  = meta > 0 ? Math.min(100, Math.round((fin.ingresos / meta) * 100)) : 0;
+
+  return { ingresos: fin.ingresos, gastos: fin.gastos, clientes: fin.clientes, meta, pct };
+};
+
+// ─── Mensaje de la mañana (7:30 AM) ──────────────────────────────────────────
+
 const enviarResumenMatutino = () => {
   try {
-    const hoy = new Date();
-    const agendaUni = _getEventsString(getCalendarId('CALENDAR_UNI_ID'), hoy);
-    const agendaBarberia = _getEventsString(getCalendarId('CALENDAR_BARBERIA_ID'), hoy);
-    const agendaCompromisos = _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), hoy);
+    const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+    if (!chatId) return;
 
-    let tareasPendientes = "";
+    const hoy     = new Date();
+    const ayer    = new Date(hoy); ayer.setDate(hoy.getDate() - 1);
+    const ss      = SpreadsheetApp.openById(getSheetId());
+
+    // ── Datos ───────────────────────────────────────────────────────
+    const citasHoy       = obtenerCitasHoy();
+    const finAyer        = _calcularFinanzasRango(ss, new Date(ayer), new Date(ayer));
+    const semana         = _progresoSemanal(ss);
+    const clima          = _obtenerClima(false);
+    const agendaUni      = _getEventsString(getCalendarId('CALENDAR_UNI_ID'), hoy);
+    const agendaComp     = _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), hoy);
+    const inventarioBajo = obtenerResumenInventario();
+
+    let clientesPendientes = '';
+    try { clientesPendientes = obtenerResumenClientesPendientes(); } catch(e) {}
+
+    let tareas = '';
     try {
-      const sheet = _getToDoSheet();
-      const data = sheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][3] && data[i][3].toString().toLowerCase() === "pendiente") {
-          tareasPendientes += "- [" + data[i][1] + "] " + data[i][2] + "\n";
+      const shTodo = _getToDoSheet();
+      const dataTodo = shTodo.getDataRange().getValues();
+      for (let i = 1; i < dataTodo.length; i++) {
+        if ((dataTodo[i][3] || '').toString().toLowerCase() === 'pendiente') {
+          tareas += `• [${dataTodo[i][1]}] ${dataTodo[i][2]}\n`;
         }
       }
     } catch(e) {}
 
-    // Obtener citas del día registradas en el bot
-    let citasHoy = "";
-    try {
-      citasHoy = obtenerResumenCitasHoy();
-    } catch(e) {
-      citasHoy = "No pude cargar los clientes de hoy.";
+    // ── Construcción del mensaje ────────────────────────────────────
+    let msg = `☀️ *Buenos días Jorge* — ${_fechaTextoCorto(hoy)}\n`;
+
+    // Clientes hoy
+    msg += `\n✂️ *CLIENTES HOY*\n`;
+    if (citasHoy.length === 0) {
+      msg += `Sin clientes registrados en el bot hoy.\n`;
+    } else {
+      let totalEst = 0;
+      citasHoy.forEach(c => {
+        const addStr = c.addOns ? ` + ${c.addOns}` : '';
+        msg += `• ${c.hora} — ${c.nombre} (${c.servicio}${addStr})\n`;
+      });
     }
 
-    // Obtener lista de clientes a recuperar
-    let clientesPendientes = "";
-    try {
-      clientesPendientes = obtenerResumenClientesPendientes();
-    } catch(e) {
-      clientesPendientes = "No pude traer la lista de clientes.";
+    // Finanzas
+    msg += `\n💰 *FINANZAS*\n`;
+    if (finAyer.ingresos > 0 || finAyer.clientes > 0) {
+      msg += `Ayer: $${finAyer.ingresos.toLocaleString('es-CL')} (${finAyer.clientes} clientes)\n`;
+    } else {
+      msg += `Ayer: sin registro\n`;
+    }
+    if (semana.meta > 0) {
+      msg += `Semana: $${semana.ingresos.toLocaleString('es-CL')} de $${semana.meta.toLocaleString('es-CL')} (${semana.pct}%) ${_barraProgreso(semana.pct, 10)}\n`;
+    } else {
+      msg += `Semana: $${semana.ingresos.toLocaleString('es-CL')} (${semana.clientes} clientes)\n`;
     }
 
-    // Alertas de inventario bajo
-    let alertaInventario = '';
-    try {
-      alertaInventario = obtenerResumenInventario();
-    } catch(e) {}
+    // Clima
+    if (clima) {
+      msg += `\n🌤️ *CLIMA HOY*\n${clima}\n`;
+    }
 
-    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ CLIENTES DE HOY:\n" + citasHoy + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n✂️ Barbería (Calendar):\n" + (agendaBarberia || "Nada en el calendar de barbería") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + (alertaInventario ? "\n📦 INVENTARIO BAJO:\n" + alertaInventario : "") + "\n\n📞 CLIENTES QUE YA LES TOCA VOLVER:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis. Muestra los clientes de hoy de forma prominente al inicio. Si hay alertas de inventario, méncionalo brevemente.";
+    // Universidad y compromisos (solo si hay algo)
+    const hayUni  = agendaUni && agendaUni.trim();
+    const hayComp = agendaComp && agendaComp.trim();
+    if (hayUni || hayComp || tareas) {
+      msg += `\n📅 *AGENDA*\n`;
+      if (hayUni)  msg += agendaUni;
+      if (hayComp) msg += agendaComp;
+      if (tareas)  msg += tareas;
+    }
 
+    // Inventario bajo (solo si hay)
+    if (inventarioBajo) {
+      msg += `\n📦 *INVENTARIO*\n${inventarioBajo}`;
+    }
+
+    // Clientes a contactar (solo si hay)
+    if (clientesPendientes && clientesPendientes.trim()) {
+      msg += `\n📞 *CONTACTAR HOY*\n${clientesPendientes}`;
+    }
+
+    sendTelegramMessage(chatId, msg);
+    console.log('[NOTIFICACIONES] Resumen matutino enviado.');
+  } catch (error) {
+    console.error('[NOTIFICACIONES] Error matutino: ' + error.message);
+  }
+};
+
+// ─── Mensaje de cierre (10:30 PM) ─────────────────────────────────────────────
+
+const enviarCierreDiario = () => {
+  try {
     const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
     if (!chatId) return;
 
-    const texto = pedirTextoAGeminiSeguro(prompt, null);
-    if (texto) {
-      sendTelegramMessage(chatId, texto);
+    const hoy    = new Date();
+    const manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
+    const ss     = SpreadsheetApp.openById(getSheetId());
+
+    // ── Datos ───────────────────────────────────────────────────────
+    const finHoy           = _calcularFinanzasRango(ss, new Date(hoy), new Date(hoy));
+    const semana           = _progresoSemanal(ss);
+    const pendientes       = obtenerCitasPendientesConfirmar();
+    const climaManana      = _obtenerClima(true);
+
+    const agendaManBarberia = _getEventsString(getCalendarId('CALENDAR_BARBERIA_ID'), manana);
+    const agendaManUni      = _getEventsString(getCalendarId('CALENDAR_UNI_ID'), manana);
+    const agendaManComp     = _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), manana);
+
+    let clientesPendientes = '';
+    try { clientesPendientes = obtenerResumenClientesPendientes(); } catch(e) {}
+
+    // ── Construcción del mensaje ────────────────────────────────────
+    let msg = `🌙 *Cierre — ${_fechaTextoCorto(hoy)}*\n`;
+
+    // Resumen de hoy
+    msg += `\n✂️ *HOY EN LA BARBA*\n`;
+    if (finHoy.clientes > 0) {
+      msg += `${finHoy.clientes} clientes | $${finHoy.ingresos.toLocaleString('es-CL')} ingresos`;
+      if (finHoy.gastos > 0) msg += ` | $${finHoy.gastos.toLocaleString('es-CL')} gastos`;
+      msg += ` | Balance: +$${finHoy.balance.toLocaleString('es-CL')}\n`;
     } else {
-      console.warn("[NOTIFICACIONES] Resumen matutino omitido: IA no disponible.");
+      msg += `Sin clientes registrados hoy.\n`;
     }
+
+    // Progreso semanal
+    msg += `\n📊 *SEMANA*\n`;
+    if (semana.meta > 0) {
+      msg += `$${semana.ingresos.toLocaleString('es-CL')} de $${semana.meta.toLocaleString('es-CL')} (${semana.pct}%) ${_barraProgreso(semana.pct, 10)}\n`;
+      if (semana.pct >= 100) msg += `✅ ¡Meta semanal cumplida!\n`;
+    } else {
+      msg += `$${semana.ingresos.toLocaleString('es-CL')} (${semana.clientes} clientes esta semana)\n`;
+    }
+
+    // Sin confirmar
+    msg += `\n❓ *SIN CONFIRMAR*\n`;
+    if (pendientes.length === 0) {
+      msg += `Todos confirmados ✅\n`;
+    } else {
+      pendientes.forEach(c => {
+        msg += `• ${c.hora} ${c.nombre} (${c.servicio}) → "vino ${c.nombre.split(' ')[0].toLowerCase()}" o "no vino"\n`;
+      });
+    }
+
+    // Mañana
+    const hayManBarberia = agendaManBarberia && agendaManBarberia.trim();
+    const hayManUni      = agendaManUni && agendaManUni.trim();
+    const hayManComp     = agendaManComp && agendaManComp.trim();
+    msg += `\n📅 *MAÑANA*\n`;
+    if (!hayManBarberia && !hayManUni && !hayManComp) {
+      msg += `Día libre 🎉\n`;
+    } else {
+      if (hayManBarberia) msg += agendaManBarberia;
+      if (hayManUni)      msg += agendaManUni;
+      if (hayManComp)     msg += agendaManComp;
+    }
+
+    // Clima mañana
+    if (climaManana) {
+      msg += `\n🌤️ *CLIMA MAÑANA*\n${climaManana}\n`;
+    }
+
+    // Clientes pendientes de contactar
+    if (clientesPendientes && clientesPendientes.trim()) {
+      msg += `\n📞 *PENDIENTES DE CONTACTAR*\n${clientesPendientes}`;
+    }
+
+    sendTelegramMessage(chatId, msg);
+    console.log('[NOTIFICACIONES] Cierre diario enviado.');
   } catch (error) {
-    console.error("[NOTIFICACIONES] Error matutino: " + error.message);
+    console.error('[NOTIFICACIONES] Error cierre: ' + error.message);
   }
 };
+
 
 const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
   let ingresos = 0, gastos = 0, clientes = 0;
