@@ -176,9 +176,32 @@ const agendarCita = (accion, chatId) => {
       '', '', '' // nueva_fecha, nueva_hora, id_evento_calendar
     ]);
 
-    const esNuevo      = !match.encontrado ? '\n👤 *Cliente nuevo* — lo agregué a tu lista.' : '';
+    // Crear evento en Google Calendar (calendario Barbería → sincroniza al iPhone)
     const addOnStr     = addOnsNorm.length  ? ` + ${addOnsNorm.join(', ')}` : '';
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, []);
+    const esNuevo      = !match.encontrado ? '\n👤 *Cliente nuevo* — lo agregué a tu lista.' : '';
+
+    try {
+      const titulo = `✂️ ${nombreFinal} — ${servicioNorm}${addOnStr}`;
+      const accionCalendar = {
+        evento: titulo,
+        fecha_estimada: fecha,
+        hora_estimada: hora || '09:00',
+        ignorar_choques: true // No bloquear si hay choque, solo registrar
+      };
+      const calBarberia = CalendarApp.getCalendarById(
+        PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+      );
+      if (calBarberia) {
+        crearEvento(accionCalendar, calBarberia);
+        console.log(`[VISITAS] Evento creado en Calendar: ${titulo}`);
+      } else {
+        console.warn('[VISITAS] CALENDAR_BARBERIA_ID no configurado, saltando Calendar.');
+      }
+    } catch (calErr) {
+      console.warn(`[VISITAS] No se pudo crear evento en Calendar: ${calErr.message}`);
+      // No falla el flujo completo si el calendar falla
+    }
 
     sendTelegramMessage(chatId,
       `✅ Agendado jefe!\n\n` +
