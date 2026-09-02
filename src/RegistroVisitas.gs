@@ -440,6 +440,22 @@ const obtenerResumenCitasHoy = () => {
   }
 };
 
+// ─── Helper: normalizar texto ────────────────────────────────────────────────
+
+/**
+ * Normaliza un string: minúsculas + sin tildes + sin espacios extra.
+ * Ej: "Jonathan Henríquez" → "jonathan henriquez"
+ */
+const _normalizar = (str) => {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // quita diacríticos (tildes, etc.)
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 // ─── Helper: crear cliente nuevo ──────────────────────────────────────────────
 
 const _crearClienteNuevo = (nombre, telefono) => {
@@ -453,6 +469,45 @@ const _crearClienteNuevo = (nombre, telefono) => {
 };
 
 // ─── Test ─────────────────────────────────────────────────────────────────────
+
+/**
+ * LIMPIEZA: Borra el cliente duplicado "jonathan henriquez" (el que no tiene teléfono)
+ * y la cita de hoy de Jonathan Henriquez recién creada.
+ * Ejecutar UNA sola vez desde el editor de GAS.
+ */
+const test_LimpiarRegistroPrueba = () => {
+  const ss = SpreadsheetApp.openById(getSheetId());
+  let borrados = 0;
+
+  // 1. Borrar cliente duplicado en Clientes
+  const sheetClientes = _getClientesSheet();
+  const dataClientes  = sheetClientes.getDataRange().getValues();
+  for (let i = dataClientes.length - 1; i >= 1; i--) {
+    const nombre = _normalizar((dataClientes[i][0] || '').toString());
+    const tel    = (dataClientes[i][1] || '').toString().trim();
+    // El duplicado es el que se llama jonathan henriquez y NO tiene teléfono
+    if (nombre === 'jonathan henriquez' && !tel) {
+      sheetClientes.deleteRow(i + 1);
+      console.log(`[LIMPIEZA] Fila ${i + 1} borrada de Clientes: ${dataClientes[i][0]}`);
+      borrados++;
+    }
+  }
+
+  // 2. Borrar cita de hoy de Jonathan Henriquez en Citas
+  const sheetCitas = _getHojaCitas();
+  const dataCitas  = sheetCitas.getDataRange().getValues();
+  for (let i = dataCitas.length - 1; i >= 1; i--) {
+    const nombre = _normalizar((dataCitas[i][2] || '').toString());
+    if (nombre === 'jonathan henriquez') {
+      sheetCitas.deleteRow(i + 1);
+      console.log(`[LIMPIEZA] Fila ${i + 1} borrada de Citas: ${dataCitas[i][2]}`);
+      borrados++;
+    }
+  }
+
+  console.log(`[LIMPIEZA] Total filas borradas: ${borrados}`);
+  console.log('[LIMPIEZA] Listo. Verifica en tu Sheets que quedó limpio.');
+};
 
 /**
  * TEST: Verifica que las hojas se crean correctamente y muestra citas de hoy.

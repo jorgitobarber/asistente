@@ -360,13 +360,13 @@ const _buscarCliente = (nombreBuscado) => {
 
     const sheet   = _getClientesSheet();
     const data    = sheet.getDataRange().getValues();
-    const busqueda = nombreBuscado.toLowerCase().trim();
+    const busqueda = _normalizar(nombreBuscado);
 
     const exactos   = [];
     const parciales = [];
 
     for (let i = 1; i < data.length; i++) {
-      const nombre = (data[i][0] || '').toString().toLowerCase().trim();
+      const nombre = _normalizar((data[i][0] || '').toString());
       if (!nombre) continue;
 
       const entry = { fila: i + 1, nombre: data[i][0], telefono: data[i][1] };
