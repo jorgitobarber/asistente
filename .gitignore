@@ -1,0 +1,11 @@
+# Datos privados de clientes — nunca subir a GitHub
+data/
+*.csv
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Credenciales y configuración local sensible
+*.env
+.env.local
