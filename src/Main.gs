@@ -60,8 +60,17 @@ const doPost = (e) => {
 
     // 4. Enrutador de Acciones
     const fechaActual = new Date();
-    
+    // Acciones que mandan su propio mensaje → no duplicar con respuesta_telegram
+    const ACCIONES_CON_RESPUESTA_PROPIA = new Set([
+      'AGENDAR_CITA','CONFIRMAR_VISITA','INASISTENCIA','REAGENDAR_CITA',
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES'
+    ]);
+    let accionEnvioRespuesta = false;
+
     for (const accion of acciones) {
+      if (ACCIONES_CON_RESPUESTA_PROPIA.has(accion.tipo)) {
+        accionEnvioRespuesta = true;
+      }
       if (accion.tipo === "FINANZAS") {
         registrarFinanzas(accion, fechaActual);
       } else if (accion.tipo === "AGENDA") {
@@ -95,8 +104,10 @@ const doPost = (e) => {
       }
     }
 
-    // 5. Responder a Jorge en Telegram (Confirmación natural)
-    sendTelegramMessage(chatId, respuestaParaJorge);
+    // 5. Responder a Jorge — solo si ninguna acción ya lo hizo
+    if (!accionEnvioRespuesta) {
+      sendTelegramMessage(chatId, respuestaParaJorge);
+    }
 
     // Confirmar a la API de Telegram que todo fue bien
     return HtmlService.createHtmlOutput("OK");

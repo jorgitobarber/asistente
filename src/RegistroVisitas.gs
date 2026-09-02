@@ -574,3 +574,30 @@ const test_HojasRegistro = () => {
   console.log('Resumen AM:\n' + obtenerResumenCitasHoy());
   console.log('--- Fin test ---');
 };
+
+/**
+ * LIMPIEZA: Borra las citas erróneas del 3 de septiembre para
+ * Nicolas Rivera y Elias Rivera, registradas antes de que el bot estuviera estable.
+ * Ejecutar UNA VEZ desde el editor de GAS.
+ */
+const test_LimpiarCitasSept3 = () => {
+  const BORRAR_NOMBRES = ['nicolas rivera', 'elias rivera'];
+  const FECHA_OBJETIVO = '2026-09-03';
+  let borrados = 0;
+
+  // 1. Borrar en hoja Citas
+  const sheetCitas = _getHojaCitas();
+  const dataCitas  = sheetCitas.getDataRange().getValues();
+  for (let i = dataCitas.length - 1; i >= 1; i--) {
+    const fecha  = (dataCitas[i][0] || '').toString();
+    const nombre = _normalizar(dataCitas[i][2] || '');
+    if (fecha === FECHA_OBJETIVO && BORRAR_NOMBRES.includes(nombre)) {
+      sheetCitas.deleteRow(i + 1);
+      console.log(`[LIMPIEZA] Cita borrada: ${dataCitas[i][2]} el ${fecha}`);
+      borrados++;
+    }
+  }
+
+  console.log(`[LIMPIEZA] Total: ${borrados} filas borradas de Citas.`);
+  console.log('[LIMPIEZA] Listo. Ahora puedes volver a agendar a estos clientes.');
+};

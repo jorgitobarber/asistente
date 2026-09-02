@@ -387,7 +387,17 @@ const _buscarCliente = (nombreBuscado) => {
       return { encontrado: true, ambiguo: false, candidatos: [], ...candidatos[0] };
     }
 
-    // Múltiples exactos: preferir el que tiene teléfono
+    // Si todos los candidatos tienen el mismo teléfono → mismo cliente, diferente ortografía
+    // Elegir el que tenga teléfono (o el primero)
+    const telefonos = [...new Set(candidatos.map(c => (c.telefono || '').trim()).filter(Boolean))];
+    if (telefonos.length <= 1) {
+      const conTel = candidatos.filter(c => c.telefono);
+      const elegido = conTel.length > 0 ? conTel[0] : candidatos[0];
+      console.log(`[CLIENTES] Duplicado de ortografía detectado para "${nombreBuscado}", usando: ${elegido.nombre}`);
+      return { encontrado: true, ambiguo: false, candidatos: [], ...elegido };
+    }
+
+    // Múltiples exactos con distintos teléfonos: preferir el que tiene teléfono (único)
     if (exactos.length > 1) {
       const conTel = exactos.filter(c => c.telefono);
       if (conTel.length === 1) {
@@ -395,7 +405,7 @@ const _buscarCliente = (nombreBuscado) => {
       }
     }
 
-    // Ambigüedad real: reportar candidatos para que el bot pregunte
+    // Ambigüedad real: distintas personas con mismo nombre
     return { encontrado: true, ambiguo: true, candidatos, nombre: '', telefono: '', fila: -1 };
 
   } catch (e) {
