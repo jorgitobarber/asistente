@@ -52,7 +52,13 @@ const enviarResumenMatutino = () => {
       clientesPendientes = "No pude traer la lista de clientes.";
     }
 
-    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ CLIENTES DE HOY:\n" + citasHoy + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n✂️ Barbería (Calendar):\n" + (agendaBarberia || "Nada en el calendar de barbería") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + "\n\n📞 CLIENTES QUE YA LES TOCA VOLVER:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis. Muestra los clientes de hoy de forma prominente al inicio.";
+    // Alertas de inventario bajo
+    let alertaInventario = '';
+    try {
+      alertaInventario = obtenerResumenInventario();
+    } catch(e) {}
+
+    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ CLIENTES DE HOY:\n" + citasHoy + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n✂️ Barbería (Calendar):\n" + (agendaBarberia || "Nada en el calendar de barbería") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + (alertaInventario ? "\n📦 INVENTARIO BAJO:\n" + alertaInventario : "") + "\n\n📞 CLIENTES QUE YA LES TOCA VOLVER:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis. Muestra los clientes de hoy de forma prominente al inicio. Si hay alertas de inventario, méncionalo brevemente.";
 
     const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
     if (!chatId) return;
@@ -74,9 +80,13 @@ const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
   dateEnd.setHours(23,59,59,999);
 
   const parseRowDate = (v) => {
-    if (typeof v === 'string' && v.includes('/')) {
-      const p = v.split(' ')[0].split(/[\/\-]/);
-      return p[0].length === 2 ? new Date(p[2] + '-' + p[1] + '-' + p[0] + 'T12:00:00') : new Date(v);
+    if (!v) return new Date(0);
+    if (typeof v === 'string') {
+      if (v.includes('/')) {
+        const p = v.split(' ')[0].split(/[\/\-]/);
+        return p[0].length === 2 ? new Date(p[2] + '-' + p[1] + '-' + p[0] + 'T12:00:00') : new Date(v + 'T12:00:00');
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return new Date(v + 'T12:00:00');
     }
     return new Date(v);
   };
@@ -89,17 +99,18 @@ const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
       const rowFecha = parseRowDate(data[i][0]);
       if (isNaN(rowFecha.getTime())) continue;
       if (rowFecha >= dateStart && rowFecha <= dateEnd) {
-        const monto = parseFloat(type === 'clientes' ? data[i][5] : data[i][3]) || 0;
-        if (type === 'ingreso') ingresos += monto;
-        if (type === 'gasto') gastos += monto;
-        if (type === 'clientes') { ingresos += monto; clientes++; }
+        if (type === 'ingreso')   { ingresos += parseFloat(data[i][3]) || 0; }
+        if (type === 'gasto')     { gastos   += parseFloat(data[i][3]) || 0; }
+        if (type === 'clientes')  { ingresos += parseFloat(data[i][5]) || 0; clientes++; }
+        if (type === 'historial') { ingresos += parseFloat(data[i][6]) || 0; clientes++; } // Historial_Visitas col 6 = monto
       }
     }
   };
 
   processSheet('Ingresos', 'ingreso');
   processSheet('Gastos', 'gasto');
-  processSheet('Clientes_del_dia', 'clientes');
+  processSheet('Clientes_del_dia', 'clientes');  // sistema legado
+  processSheet('Historial_Visitas', 'historial'); // sistema nuevo
   return { ingresos, gastos, clientes, balance: ingresos - gastos };
 };
 

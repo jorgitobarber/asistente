@@ -86,6 +86,10 @@ const doPost = (e) => {
         registrarInasistencia(accion, chatId);
       } else if (accion.tipo === "REAGENDAR_CITA") {
         reagendarCita(accion, chatId);
+      } else if (accion.tipo === "VENTA_PRODUCTO") {
+        registrarVentaProductoDirecta(accion, chatId);
+      } else if (accion.tipo === "REABASTECER") {
+        reabastecer(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
       }

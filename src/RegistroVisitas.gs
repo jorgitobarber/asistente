@@ -243,7 +243,7 @@ const confirmarVisita = (accion, chatId) => {
 
     for (let i = 1; i < dataCitas.length; i++) {
       if (dataCitas[i][0] === hoy &&
-          dataCitas[i][2].toLowerCase() === nombre.toLowerCase() &&
+          _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         sheetCitas.getRange(i + 1, 6).setValue('confirmada');
         if (!servicioBase) servicioBase = dataCitas[i][3];
@@ -268,6 +268,17 @@ const confirmarVisita = (accion, chatId) => {
     // Actualizar última_cita en Clientes
     if (match.encontrado) _actualizarUltimaCita(nombre, hoy, match.fila);
 
+    // Descontar del inventario los productos vendidos en esta visita
+    let alertasInventario = '';
+    prodNorm.forEach(p => {
+      try {
+        const res = descontarProducto(p, 1);
+        if (res.alerta) alertasInventario += res.mensajeAlerta;
+      } catch(e) {
+        console.warn(`[VISITAS] No pude descontar inventario para ${p}: ${e.message}`);
+      }
+    });
+
     const addOnStr  = addOnsNorm.length ? ` + ${addOnsNorm.join(', ')}` : '';
     const prodStr   = prodNorm.length   ? `\n🧴 Productos: ${prodNorm.join(', ')}` : '';
     const notaExtra = !citaActualizada  ? '\n📝 No tenía cita previa registrada, lo anoté igual.' : '';
@@ -275,7 +286,7 @@ const confirmarVisita = (accion, chatId) => {
     sendTelegramMessage(chatId,
       `✅ Listo jefe! ${nombre} confirmado.\n\n` +
       `✂️ ${servicioNorm}${addOnStr}${prodStr}\n` +
-      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}`
+      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}${alertasInventario}`
     );
     console.log(`[VISITAS] Visita confirmada: ${nombre} — $${monto}`);
 
@@ -304,7 +315,7 @@ const registrarInasistencia = (accion, chatId) => {
 
     for (let i = 1; i < dataCitas.length; i++) {
       if (dataCitas[i][0] === hoy &&
-          dataCitas[i][2].toLowerCase() === nombre.toLowerCase() &&
+          _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         sheetCitas.getRange(i + 1, 6).setValue('inasistencia');
         actualizado = true;
@@ -343,8 +354,15 @@ const reagendarCita = (accion, chatId) => {
 
     // Marcar cita más próxima de este cliente como "reagendada" y crear la nueva
     for (let i = 1; i < dataCitas.length; i++) {
-      if (dataCitas[i][2].toLowerCase() === nombre.toLowerCase() &&
+      if (_normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
+
+        // Guardar datos de la cita vieja antes de marcarla
+        const viejaFecha   = dataCitas[i][0];
+        const viejaHora    = dataCitas[i][1];
+        const viejoServicio = dataCitas[i][3];
+        const viejosAddOns  = dataCitas[i][4];
+
         sheetCitas.getRange(i + 1, 6).setValue('reagendada');
         sheetCitas.getRange(i + 1, 7).setValue(accion.nueva_fecha || '');
         sheetCitas.getRange(i + 1, 8).setValue(accion.nueva_hora  || '');
@@ -352,11 +370,44 @@ const reagendarCita = (accion, chatId) => {
         // Crear nueva cita con la fecha nueva
         sheetCitas.appendRow([
           accion.nueva_fecha, accion.nueva_hora, nombre,
-          dataCitas[i][3], // mismo servicio
-          dataCitas[i][4], // mismos add_ons
+          viejoServicio,
+          viejosAddOns,
           'agendada',
           '', '', ''
         ]);
+
+        // Actualizar Google Calendar: borrar evento viejo, crear nuevo
+        try {
+          const calBarberia = CalendarApp.getCalendarById(
+            PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+          );
+          if (calBarberia && viejaFecha && viejaHora) {
+            const fechaVieja = _parseDateTime(viejaFecha, viejaHora);
+            // Buscar eventos del cliente en ±5 min de la hora original
+            const eventos = calBarberia.getEvents(
+              new Date(fechaVieja.getTime() - 5 * 60000),
+              new Date(fechaVieja.getTime() + 5 * 60000)
+            );
+            eventos.forEach(ev => {
+              if (_normalizar(ev.getTitle()).includes(_normalizar(nombre))) {
+                ev.deleteEvent();
+                console.log(`[VISITAS] Evento Calendar borrado: ${ev.getTitle()}`);
+              }
+            });
+
+            // Crear evento nuevo
+            const addOnStr = viejosAddOns ? ` + ${viejosAddOns}` : '';
+            crearEvento({
+              evento: `✂️ ${nombre} — ${viejoServicio}${addOnStr}`,
+              fecha_estimada: accion.nueva_fecha,
+              hora_estimada:  accion.nueva_hora || '09:00',
+              ignorar_choques: true
+            }, calBarberia);
+          }
+        } catch (calErr) {
+          console.warn(`[VISITAS] No pude actualizar Calendar al reagendar: ${calErr.message}`);
+        }
+
         actualizado = true;
         break;
       }
@@ -364,7 +415,7 @@ const reagendarCita = (accion, chatId) => {
 
     const fechaLegible = _formatearFechaLegible(accion.nueva_fecha);
     const msg = actualizado
-      ? `✅ Reagendado jefe!\n\n👤 ${nombre}\n📅 ${fechaLegible} a las ${accion.nueva_hora}`
+      ? `✅ Reagendado jefe!\n\n👤 ${nombre}\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n📆 Actualicé tu calendario también.`
       : `📋 Reagendado.\n\n👤 ${nombre}\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n\n(No tenía cita previa registrada, creé la nueva igual.)`;
 
     sendTelegramMessage(chatId, msg);

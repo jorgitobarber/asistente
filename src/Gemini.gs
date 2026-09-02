@@ -109,7 +109,9 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
     { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
     { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"] },
     { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
-    { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" }
+    { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
+    { "tipo": "VENTA_PRODUCTO", "producto": "Cera|Texturizador", "cantidad": 1, "nombre_cliente": "string opcional" },
+    { "tipo": "REABASTECER", "producto": "Cera|Texturizador", "cantidad": 1, "costo_total": 0 }
   ],
   "respuesta_telegram": "Respuesta natural y amigable confirmando lo que se hará, con emojis. Si la accion es REPORTE->AGENDA, pon solo un mensaje corto tipo 'Dejame revisar tu agenda jefe, un segundo...' porque luego se genera otro mensaje con el detalle."
 }
@@ -128,10 +130,21 @@ DETECTAR ACCIONES DE BARBERÍA:
 - "Juan reagendó para el viernes a las 4" → REAGENDAR_CITA
 - "contactos hecho", "ya les mandé" → CLIENTES/CONTACTOS_CONFIRMADO
 
+DETECTAR VENTAS DE PRODUCTOS:
+- "vendí una cera", "se llevó una cera" (sin corte) → VENTA_PRODUCTO, producto: "Cera", cantidad: 1
+- "vendí 2 texturizadores" → VENTA_PRODUCTO, producto: "Texturizador", cantidad: 2
+- "juan solo vino por polvos" → VENTA_PRODUCTO, producto: "Texturizador", cantidad: 1, nombre_cliente: "juan"
+
+DETECTAR REABASTECIMIENTO:
+- "compré 3 ceras", "compré ceras" → REABASTECER, producto: "Cera", cantidad: 3
+- "compré 5 polvos, pagué 12500" → REABASTECER, producto: "Texturizador", cantidad: 5, costo_total: 12500
+- "me llegó pedido de 4 ceras a 2500 cada una" → REABASTECER, producto: "Cera", cantidad: 4, costo_total: 10000
+
 DETECTAR PRODUCTOS Y ADD-ONS EN CONFIRMAR_VISITA:
 - "ya vino Juan, se llevó cera" → productos: ["Cera"]
 - "vino Juan, corte con diseño" → servicio: "Corte", add_ons: ["Diseño"]
 - "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]`;
+
 
   try {
     const response = _callGeminiWithRetry(systemInstruction, text, 3);
