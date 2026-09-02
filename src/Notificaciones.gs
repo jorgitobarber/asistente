@@ -36,6 +36,14 @@ const enviarResumenMatutino = () => {
       }
     } catch(e) {}
 
+    // Obtener citas del día registradas en el bot
+    let citasHoy = "";
+    try {
+      citasHoy = obtenerResumenCitasHoy();
+    } catch(e) {
+      citasHoy = "No pude cargar los clientes de hoy.";
+    }
+
     // Obtener lista de clientes a recuperar
     let clientesPendientes = "";
     try {
@@ -44,7 +52,7 @@ const enviarResumenMatutino = () => {
       clientesPendientes = "No pude traer la lista de clientes.";
     }
 
-    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ Clientes Barbería:\n" + (agendaBarberia || "Sin clientes hoy 🙌") + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + "\n\n📞 RECUPERACIÓN DE CLIENTES:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis.";
+    const prompt = "Hoy es " + hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ". Crea un resumen de buenos días para Jorge organizado así:\n✂️ CLIENTES DE HOY:\n" + citasHoy + "\n🎓 Universidad:\n" + (agendaUni || "Sin eventos universitarios") + "\n✂️ Barbería (Calendar):\n" + (agendaBarberia || "Nada en el calendar de barbería") + "\n📌 Compromisos:\n" + (agendaCompromisos || "Sin compromisos personales") + "\n✅ Tareas Pendientes:\n" + (tareasPendientes || "Sin tareas pendientes") + "\n\n📞 CLIENTES QUE YA LES TOCA VOLVER:\n" + clientesPendientes + "\n\nHazlo motivacional, amigable y con emojis. Muestra los clientes de hoy de forma prominente al inicio.";
 
     const chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
     if (!chatId) return;
@@ -132,15 +140,18 @@ const enviarCierreDiario = () => {
     const agendaManana = _getEventsString(getCalendarId('CALENDAR_BARBERIA_ID'), manana) + _getEventsString(getCalendarId('CALENDAR_UNI_ID'), manana) + _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), manana) + tareasPendientes;
     const agendaSemana = _getEventsString(getCalendarId('CALENDAR_UNI_ID'), manana, enUnaSemana) + _getEventsString(getCalendarId('CALENDAR_COMPROMISOS_ID'), manana, enUnaSemana);
 
-    // Obtener lista de clientes a los que se debería haber contactado
+    // Obtener citas pendientes de confirmar
     let preguntaContactos = "";
     try {
-      const pendientes = obtenerClientesPendientes();
-      if (pendientes.length > 0) {
-        preguntaContactos = "\n\n❓ Pregunta de la noche:\n¿Ya contactaste a estos clientes que aparecieron en la mañana?\nResponde 'contactos hecho' cuando termines y los marco para que no te los repita mañana.";
+      const pendientesConfirmar = obtenerCitasPendientesConfirmar();
+      if (pendientesConfirmar.length > 0) {
+        const listaStr = pendientesConfirmar
+          .map(c => `- ${c.hora} ${c.nombre} (${c.servicio})`)
+          .join('\n');
+        preguntaContactos = "\n\n❓ Clientes de hoy sin confirmar:\n" + listaStr + "\n\n¿Vinieron? Dime 'vino [nombre]' o '[nombre] no vino' para cada uno.";
       }
     } catch(e) {
-      console.error("No pude traer la lista de clientes para la pregunta nocturna.");
+      console.error("Error cargando citas pendientes para cierre: " + e.message);
     }
 
     const prompt = "Redacta el cierre de las 10:30 PM para Jorge.\nBarbería hoy: reportó " + reportados + " clientes. Ingresos: $" + finanzasDia.ingresos + ", Gastos: $" + finanzasDia.gastos + ", Balance: $" + finanzasDia.balance + ".\nMañana: " + (agendaManana || "Día libre") + "\nSemana (próx 7 días): " + (agendaSemana || "Nada relevante") + "\nHazlo conversacional y amigable." + preguntaContactos;

@@ -78,6 +78,14 @@ const doPost = (e) => {
         if (accion.subtipo === "CONTACTOS_CONFIRMADO") {
           procesarContactosConfirmados(chatId);
         }
+      } else if (accion.tipo === "AGENDAR_CITA") {
+        agendarCita(accion, chatId);
+      } else if (accion.tipo === "CONFIRMAR_VISITA") {
+        confirmarVisita(accion, chatId);
+      } else if (accion.tipo === "INASISTENCIA") {
+        registrarInasistencia(accion, chatId);
+      } else if (accion.tipo === "REAGENDAR_CITA") {
+        reagendarCita(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
       }

@@ -85,20 +85,31 @@ const parseMessageWithGemini = (text) => {
   const fechaTexto = hoy.toLocaleString('es-CL', { timeZone: 'America/Santiago' });
 
   const systemInstruction = `Eres el asistente personal de Jorge (Estudiante de Ingeniería y Dueño de Barbería).
-Hoy es ${fechaTexto} (Hora de Chile). Utiliza esta fecha exacta como referencia obligatoria para calcular "hoy", "mañana", "próximo miércoles", etc.
+Hoy es ${fechaTexto} (Hora de Chile). Utiliza esta fecha exacta como referencia obligatoria para calcular "hoy", "mañana", "próximo miércoles", etc. Las fechas en las acciones SIEMPRE van en formato YYYY-MM-DD.
 
 Analiza su mensaje y extrae las acciones necesarias.
+
+SERVICIOS DE LA BARBERÍA (normaliza SIEMPRE al nombre canónico exacto):
+- "Corte": corte, corte simple, corte de pelo, cortado (precio: $10.000, incluye perfilado de cejas)
+- "Corte + Barba": corte y barba, corte con barba, corte barba, corte+barba (precio: $15.000)
+- "Diseño": diseño, diseños, diseño de barba (add-on: $1.000, se suma al servicio base)
+- "Cera": cera, ceras, cera de pelo (producto: $5.000)
+- "Texturizador": texturizador, polvos, polvos texturizadores (producto: $5.000)
 
 Debes devolver UNICAMENTE un JSON válido con esta estructura:
 {
   "acciones": [
     { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string" },
-    { "tipo": "FINANZAS", "subtipo": "CLIENTE_DIA", "servicios": ["Corte", "Corte + Barba", "Perfilado de cejas", "Diseño", "Cera", "Texturizador"], "productos": ["Cera", "Texturizador"], "hora_cita": "HH:MM" },
+    { "tipo": "FINANZAS", "subtipo": "CLIENTE_DIA", "servicios": ["Corte", "Corte + Barba"], "productos": ["Cera", "Texturizador"], "hora_cita": "HH:MM" },
     { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
     { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
     { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
     { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
-    { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" }
+    { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" },
+    { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
+    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"] },
+    { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
+    { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" }
   ],
   "respuesta_telegram": "Respuesta natural y amigable confirmando lo que se hará, con emojis. Si la accion es REPORTE->AGENDA, pon solo un mensaje corto tipo 'Dejame revisar tu agenda jefe, un segundo...' porque luego se genera otro mensaje con el detalle."
 }
@@ -110,8 +121,17 @@ REGLAS CRITICAS DE JSON:
 2. Nunca uses comillas dobles dentro de valores de texto.
 3. Sin saltos de línea dentro de strings.
 
-DETECTAR CUANDO JORGE CONFIRMA QUE CONTACTÓ A LOS CLIENTES:
-Si Jorge escribe algo que signifique que ya mandó los mensajes a los clientes pendientes (ej: "contactos hecho", "ya les mandé", "listos", "confirmado"), retorna una acción con tipo: "CLIENTES" y subtipo: "CONTACTOS_CONFIRMADO".`;
+DETECTAR ACCIONES DE BARBERÍA:
+- "agendó Juan a las 5pm mañana, corte" → AGENDAR_CITA con fecha de mañana
+- "ya vino Juan", "llegó Juan", "vino Juan" → CONFIRMAR_VISITA
+- "Juan no vino", "Juan faltó", "Juan no llegó" → INASISTENCIA
+- "Juan reagendó para el viernes a las 4" → REAGENDAR_CITA
+- "contactos hecho", "ya les mandé" → CLIENTES/CONTACTOS_CONFIRMADO
+
+DETECTAR PRODUCTOS Y ADD-ONS EN CONFIRMAR_VISITA:
+- "ya vino Juan, se llevó cera" → productos: ["Cera"]
+- "vino Juan, corte con diseño" → servicio: "Corte", add_ons: ["Diseño"]
+- "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]`;
 
   try {
     const response = _callGeminiWithRetry(systemInstruction, text, 3);

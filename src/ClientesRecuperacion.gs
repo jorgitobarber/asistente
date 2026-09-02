@@ -346,6 +346,95 @@ const inicializarClientesDesdeCSVProcesado = (csvData) => {
 };
 
 /**
+ * Busca un cliente en la hoja Clientes por nombre.
+ * Soporta coincidencia exacta, parcial y devuelve ambigüedad si hay varios.
+ *
+ * Retorna:
+ *   { encontrado, ambiguo, nombre, telefono, fila, candidatos }
+ */
+const _buscarCliente = (nombreBuscado) => {
+  const SIN_RESULTADO = { encontrado: false, ambiguo: false, nombre: '', telefono: '', fila: -1, candidatos: [] };
+
+  try {
+    if (!nombreBuscado) return SIN_RESULTADO;
+
+    const sheet   = _getClientesSheet();
+    const data    = sheet.getDataRange().getValues();
+    const busqueda = nombreBuscado.toLowerCase().trim();
+
+    const exactos   = [];
+    const parciales = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const nombre = (data[i][0] || '').toString().toLowerCase().trim();
+      if (!nombre) continue;
+
+      const entry = { fila: i + 1, nombre: data[i][0], telefono: data[i][1] };
+
+      if (nombre === busqueda) {
+        exactos.push(entry);
+      } else if (nombre.includes(busqueda) || busqueda.includes(nombre)) {
+        parciales.push(entry);
+      }
+    }
+
+    // Priorizar coincidencias exactas
+    const candidatos = exactos.length > 0 ? exactos : parciales;
+
+    if (candidatos.length === 0) return SIN_RESULTADO;
+
+    if (candidatos.length === 1) {
+      return { encontrado: true, ambiguo: false, candidatos: [], ...candidatos[0] };
+    }
+
+    // Múltiples exactos: preferir el que tiene teléfono
+    if (exactos.length > 1) {
+      const conTel = exactos.filter(c => c.telefono);
+      if (conTel.length === 1) {
+        return { encontrado: true, ambiguo: false, candidatos: [], ...conTel[0] };
+      }
+    }
+
+    // Ambigüedad real: reportar candidatos para que el bot pregunte
+    return { encontrado: true, ambiguo: true, candidatos, nombre: '', telefono: '', fila: -1 };
+
+  } catch (e) {
+    console.error('[CLIENTES] Error en _buscarCliente: ' + e.message);
+    return SIN_RESULTADO;
+  }
+};
+
+/**
+ * Actualiza la columna "última_cita" de un cliente en la hoja Clientes.
+ * filaHint: número de fila conocido (para evitar re-buscar). Puede ser null.
+ */
+const _actualizarUltimaCita = (nombreCliente, fecha, filaHint) => {
+  try {
+    const sheet = _getClientesSheet();
+    let fila = filaHint;
+
+    if (!fila || fila < 1) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if ((data[i][0] || '').toString().toLowerCase().trim() === nombreCliente.toLowerCase().trim()) {
+          fila = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (fila && fila > 1) {
+      sheet.getRange(fila, 3).setValue(fecha); // Col 3 = última_cita
+      console.log(`[CLIENTES] última_cita actualizada para ${nombreCliente}: ${fecha}`);
+    } else {
+      console.warn(`[CLIENTES] No se encontró fila para actualizar última_cita de ${nombreCliente}`);
+    }
+  } catch (e) {
+    console.error('[CLIENTES] Error en _actualizarUltimaCita: ' + e.message);
+  }
+};
+
+/**
  * TEST: Ver clientes pendientes en consola
  */
 const test_VerPendientes = () => {
