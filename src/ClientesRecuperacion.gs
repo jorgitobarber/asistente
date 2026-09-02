@@ -72,8 +72,8 @@ const _calcularDías = (fechaAnterior, fechaActual) => {
 
 /**
  * Inicializa la hoja Clientes desde un CSV de datos de Fresha.
- * Se llama UNA SOLA VEZ para cargar el historial inicial.
- * Usa parser correcto para manejar comillas en campos CSV.
+ * VERSIÓN BÁSICA: usa heurística simple para estimar el promedio de días.
+ * Preferir usar inicializarClientesDesdeCSVProcesado() que tiene promedios reales.
  */
 const inicializarClientesDesdeFresha = (datosCSV) => {
   try {
@@ -297,6 +297,55 @@ const procesarContactosConfirmados = (chatId) => {
 };
 
 /**
+ * Carga la hoja Clientes desde el CSV pre-procesado generado por scripts/procesar_clientes.js.
+ * Este CSV ya tiene los promedios REALES calculados desde el historial de citas.
+ *
+ * Formato del CSV esperado (generado por el script local):
+ *   nombre,telefono,primera_cita,ultima_cita,promedio_dias
+ *
+ * Limpia todos los datos existentes antes de cargar.
+ */
+const inicializarClientesDesdeCSVProcesado = (csvData) => {
+  try {
+    const sheet = _getClientesSheet();
+
+    // Limpiar datos existentes (mantener el header en fila 1)
+    const ultimaFila = sheet.getLastRow();
+    if (ultimaFila > 1) {
+      sheet.getRange(2, 1, ultimaFila - 1, 6).clearContent();
+      console.log(`[CLIENTES] Limpiados ${ultimaFila - 1} registros existentes.`);
+    }
+
+    const lineas = csvData.split('\n').filter(l => l.trim());
+    let cargados = 0;
+    let saltados = 0;
+
+    // Saltamos el header (fila 0)
+    for (let i = 1; i < lineas.length; i++) {
+      const campos = _parsearCSVLinea(lineas[i]);
+      const nombre = campos[0] ? campos[0].trim() : '';
+
+      if (!nombre) { saltados++; continue; }
+
+      const telefono   = campos[1] ? campos[1].trim() : '';
+      const primeraCita = campos[2] ? campos[2].trim() : '';
+      const ultimaCita  = campos[3] ? campos[3].trim() : '';
+      const promedioDias = campos[4] ? parseInt(campos[4].trim()) || '' : '';
+
+      // Columnas del sheet: nombre, teléfono, última_cita, primera_cita, promedio_días, última_contactación
+      sheet.appendRow([nombre, telefono, ultimaCita, primeraCita, promedioDias, '']);
+      cargados++;
+    }
+
+    console.log(`[CLIENTES] Carga completada: ${cargados} clientes cargados, ${saltados} saltados.`);
+    return cargados;
+  } catch (error) {
+    console.error(`[CLIENTES] Error en inicializarClientesDesdeCSVProcesado: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
  * TEST: Ver clientes pendientes en consola
  */
 const test_VerPendientes = () => {
@@ -307,18 +356,25 @@ const test_VerPendientes = () => {
 };
 
 /**
- * TEST: Carga los clientes del CSV completo (ejecutar UNA SOLA VEZ).
- * Pega el contenido completo de clientes_depurado.csv en la variable csvData.
+ * TEST: Carga los clientes desde el CSV pre-procesado con promedios REALES.
+ *
+ * INSTRUCCIONES:
+ *   1. Ejecuta `node scripts/procesar_clientes.js` en tu terminal local
+ *   2. Abre el archivo generado: data/clientes_procesados.csv
+ *   3. Copia TODO su contenido y pégalo entre los backticks de csvData
+ *   4. Ejecuta esta función en el editor de GAS
  */
-const test_CargarClientes = () => {
-  console.log("--- Iniciando carga de clientes ---");
+const test_CargarClientesProcesados = () => {
+  console.log("--- Iniciando carga de clientes (con promedios reales) ---");
 
-  // INSTRUCCIÓN: reemplaza este string con el contenido completo del CSV
-  const csvData = `Cliente,Género,Edad,Número de teléfono móvil,Email,Añadido el,Primera cita,Última cita,Saldo de puntos de fidelidad,Nivel de fidelidad,Origen del cliente,Recomendado por,Notas_depuracion
-Adrian Jofré,No especificado,,,,\"26 Jan 2026, 12:00am\",\"28 Jan 2026, 12:00am\",\"01 Jun 2026, 12:00am\",,,Sin cita,,
-Agustín A. Venegas,No especificado,,56942539068,agustinsayayin@hotmail.com,\"08 Dec 2025, 12:00am\",\"22 Dec 2025, 12:00am\",\"03 Aug 2026, 12:00am\",,,Instagram,,`;
+  // PEGA EL CONTENIDO DE data/clientes_procesados.csv AQUÍ:
+  const csvData = `REEMPLAZAR_CON_CONTENIDO_DE_clientes_procesados.csv`;
 
-  inicializarClientesDesdeFresha(csvData);
+  if (csvData.startsWith('REEMPLAZAR')) {
+    console.error("[CLIENTES] Debes pegar el contenido del CSV antes de ejecutar.");
+    return;
+  }
 
-  console.log("--- Fin de carga ---");
+  const total = inicializarClientesDesdeCSVProcesado(csvData);
+  console.log(`--- Fin de carga: ${total} clientes cargados ---`);
 };
