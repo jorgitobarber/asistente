@@ -63,7 +63,7 @@ const doPost = (e) => {
     // Acciones que mandan su propio mensaje → no duplicar con respuesta_telegram
     const ACCIONES_CON_RESPUESTA_PROPIA = new Set([
       'AGENDAR_CITA','CONFIRMAR_VISITA','INASISTENCIA','REAGENDAR_CITA',
-      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES'
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES', 'RECORDATORIO'
     ]);
     let accionEnvioRespuesta = false;
 
@@ -99,6 +99,8 @@ const doPost = (e) => {
         registrarVentaProductoDirecta(accion, chatId);
       } else if (accion.tipo === "REABASTECER") {
         reabastecer(accion, chatId);
+      } else if (accion.tipo === "RECORDATORIO") {
+        agregarRecordatorio(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
       }

@@ -104,7 +104,8 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
     { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
     { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
     { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
-    { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
+    { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM opcional", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM opcional", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
+    { "tipo": "RECORDATORIO", "subtipo": "AGREGAR", "fecha_aviso": "YYYY-MM-DD", "hora_aviso": "HH:MM", "mensaje": "string" },
     { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" },
     { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
     { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"] },
@@ -143,7 +144,18 @@ DETECTAR REABASTECIMIENTO:
 DETECTAR PRODUCTOS Y ADD-ONS EN CONFIRMAR_VISITA:
 - "ya vino Juan, se llevó cera" → productos: ["Cera"]
 - "vino Juan, corte con diseño" → servicio: "Corte", add_ons: ["Diseño"]
-- "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]`;
+- "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]
+
+DIFERENCIAR ASUNTOS PERSONALES:
+1. AGENDA (Eventos en calendario): Clases, cumpleaños, salidas. Ocupan un bloque de tiempo. Si es de todo el día (ej. "cumpleaños"), omite 'hora_estimada'.
+   - "tengo clases de algebra a las 10am" → AGENDA/CREAR en UNIVERSIDAD.
+   - "mañana es cumple de Nico" → AGENDA/CREAR en COMPROMISOS (sin hora_estimada).
+2. TODO (Tareas pendientes): Cosas por hacer sin hora estricta. "tengo que...", "añade a pendientes...".
+   - "tengo que comprar cloro" → TODO/AGREGAR, tarea: "comprar cloro", categoria: "Barberia".
+   - "ya compré el cloro" → TODO/COMPLETAR, tarea: "comprar cloro".
+3. RECORDATORIO (Avisos por Telegram): Cuando pide expresamente que el bot le avise a una hora exacta.
+   - "avísame a las 20:00 que llame a mi mamá" → RECORDATORIO/AGREGAR, hora_aviso: "20:00", mensaje: "llamar a mi mamá".
+   - "recuérdame en media hora sacar el pollo" → RECORDATORIO/AGREGAR calculando la hora exacta.`;
 
 
   try {

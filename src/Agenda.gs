@@ -95,18 +95,26 @@ const _buscarEventoUnico = (accion, calendar) => {
  * Crea un evento nuevo
  */
 const crearEvento = (accion, calendar) => {
-  const startTime = _parseDateTime(accion.fecha_estimada, accion.hora_estimada);
+  const isAllDay = !accion.hora_estimada || accion.hora_estimada.includes('opcional');
+  const horaParsed = isAllDay ? "12:00" : accion.hora_estimada;
+  const startTime = _parseDateTime(accion.fecha_estimada, horaParsed);
   const endTime = new Date(startTime.getTime() + (60 * 60 * 1000)); // 1 hora
   
-  if (!accion.ignorar_choques) {
+  if (!accion.ignorar_choques && !isAllDay) {
     const choques = _verificarChoques(startTime, endTime);
     if (choques.length > 0) {
       throw new Error(`⚠️ ¡Cuidado Jefe! Tienes un choque de horario con: "${choques.join(", ")}". No lo he agendado por precaución. Si quieres que lo agende de todas formas, solo confírmamelo (ej: "dale nomás", "agéndalo igual").`);
     }
   }
 
-  const event = calendar.createEvent(accion.evento, startTime, endTime);
-  console.log(`[AGENDA] Creado: ${accion.evento} el ${startTime}`);
+  if (isAllDay) {
+    const dateOnly = new Date(startTime.getFullYear(), startTime.getMonth(), startTime.getDate());
+    calendar.createAllDayEvent(accion.evento, dateOnly);
+    console.log(`[AGENDA] Creado evento All-Day: ${accion.evento} el ${dateOnly}`);
+  } else {
+    calendar.createEvent(accion.evento, startTime, endTime);
+    console.log(`[AGENDA] Creado: ${accion.evento} el ${startTime}`);
+  }
 };
 
 /**
