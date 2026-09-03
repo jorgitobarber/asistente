@@ -24,9 +24,8 @@ const agregarRecordatorio = (accion, chatId) => {
     const hoy = new Date();
     const fechaCreacion = hoy.toLocaleString('es-CL', { timeZone: 'America/Santiago' });
     
-    // Asumimos que Gemini nos manda fecha_aviso (YYYY-MM-DD) y hora_aviso (HH:MM)
     if (!accion.fecha_aviso || !accion.hora_aviso || !accion.mensaje) {
-      throw new Error("Faltan datos (fecha, hora o mensaje) para crear el recordatorio.");
+      return { ok: false, mensaje: "⚠️ Faltan datos (fecha, hora o mensaje) para crear el recordatorio." };
     }
     
     sheet.appendRow([
@@ -39,10 +38,9 @@ const agregarRecordatorio = (accion, chatId) => {
     ]);
     
     console.log(`[RECORDATORIOS] Añadido: ${accion.mensaje} para ${accion.fecha_aviso} ${accion.hora_aviso}`);
-    // No mandamos mensaje aquí porque Main.gs lo mandará con el "respuesta_telegram" general.
+    return { ok: true, mensaje: `⏰ Recordatorio programado para el ${accion.fecha_aviso} a las ${accion.hora_aviso}: "${accion.mensaje}"` };
   } catch (error) {
-    console.error(`[RECORDATORIOS] Error en agregarRecordatorio: ${error.message}`);
-    if (chatId) sendTelegramMessage(chatId, '❌ No pude programar el recordatorio.');
+    return { ok: false, mensaje: `❌ No pude programar el recordatorio: ${error.message}` };
   }
 };
 

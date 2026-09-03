@@ -60,56 +60,70 @@ const doPost = (e) => {
 
     // 4. Enrutador de Acciones
     const fechaActual = new Date();
-    // Acciones que mandan su propio mensaje → no duplicar con respuesta_telegram
-    const ACCIONES_CON_RESPUESTA_PROPIA = new Set([
+    // Acciones que aún mandan su propio mensaje internamente (pendientes de migrar)
+    const ACCIONES_LEGACY = new Set([
       'AGENDAR_CITA','CONFIRMAR_VISITA','INASISTENCIA','REAGENDAR_CITA',
-      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES', 'RECORDATORIO', 'MARCAR_PAGADO'
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES', 'MARCAR_PAGADO'
     ]);
-    let accionEnvioRespuesta = false;
+    
+    let accionLegacyEjecutada = false;
+    let mensajesConsolidados = [];
 
     for (const accion of acciones) {
-      if (ACCIONES_CON_RESPUESTA_PROPIA.has(accion.tipo)) {
-        accionEnvioRespuesta = true;
+      let res = null;
+      
+      if (ACCIONES_LEGACY.has(accion.tipo)) {
+        accionLegacyEjecutada = true;
       }
+
       if (accion.tipo === "FINANZAS") {
-        registrarFinanzas(accion, fechaActual);
+        res = registrarFinanzas(accion, fechaActual);
       } else if (accion.tipo === "AGENDA") {
-        procesarAgenda(accion);
+        res = procesarAgenda(accion);
       } else if (accion.tipo === "REPORTE") {
         if (accion.subtipo === "AGENDA") {
-          generarReporteAgendaBajoDemanda(accion, chatId);
+          res = generarReporteAgendaBajoDemanda(accion, chatId);
         } else {
-          generarReporteBajoDemanda(accion, chatId);
+          res = generarReporteBajoDemanda(accion, chatId);
         }
       } else if (accion.tipo === "TODO") {
-        procesarToDo(accion, chatId);
+        res = procesarToDo(accion);
       } else if (accion.tipo === "CLIENTES") {
         if (accion.subtipo === "CONTACTOS_CONFIRMADO") {
-          procesarContactosConfirmados(chatId);
+          res = procesarContactosConfirmados(chatId);
         }
       } else if (accion.tipo === "AGENDAR_CITA") {
-        agendarCita(accion, chatId);
+        res = agendarCita(accion, chatId);
       } else if (accion.tipo === "CONFIRMAR_VISITA") {
-        confirmarVisita(accion, chatId);
+        res = confirmarVisita(accion, chatId);
       } else if (accion.tipo === "MARCAR_PAGADO") {
-        marcarVisitaPagada(accion, chatId);
+        res = marcarVisitaPagada(accion, chatId);
       } else if (accion.tipo === "INASISTENCIA") {
-        registrarInasistencia(accion, chatId);
+        res = registrarInasistencia(accion, chatId);
       } else if (accion.tipo === "REAGENDAR_CITA") {
-        reagendarCita(accion, chatId);
+        res = reagendarCita(accion, chatId);
       } else if (accion.tipo === "VENTA_PRODUCTO") {
-        registrarVentaProductoDirecta(accion, chatId);
+        res = registrarVentaProductoDirecta(accion, chatId);
       } else if (accion.tipo === "REABASTECER") {
-        reabastecer(accion, chatId);
+        res = reabastecer(accion, chatId);
       } else if (accion.tipo === "RECORDATORIO") {
-        agregarRecordatorio(accion, chatId);
+        res = agregarRecordatorio(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
+        res = { ok: false, mensaje: `⚠️ Acción desconocida: ${accion.tipo}` };
+      }
+      
+      if (res && res.mensaje) {
+        mensajesConsolidados.push(res.mensaje);
       }
     }
 
-    // 5. Responder a Jorge — solo si ninguna acción ya lo hizo
-    if (!accionEnvioRespuesta) {
+    // 5. Responder a Jorge
+    if (mensajesConsolidados.length > 0) {
+      // Enviamos el consolidado de las acciones nuevas (TODO, RECORDATORIO, etc)
+      sendTelegramMessage(chatId, mensajesConsolidados.join("\n\n"));
+    } else if (!accionLegacyEjecutada) {
+      // Fallback genérico de Gemini para flujos no cubiertos ni legacy
       sendTelegramMessage(chatId, respuestaParaJorge);
     }
 

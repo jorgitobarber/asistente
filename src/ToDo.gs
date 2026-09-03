@@ -33,6 +33,7 @@ const agregarTarea = (accion) => {
   
   sheet.appendRow([fechaActual, categoria, tarea, "pendiente", ""]);
   console.log(`[TODO] Tarea agregada: ${tarea} (${categoria})`);
+  return { ok: true, mensaje: `✅ Tarea agregada en [${categoria}]: ${tarea}` };
 };
 
 /**
@@ -59,7 +60,7 @@ const _buscarFilaTarea = (sheet, nombreTarea) => {
  */
 const completarTarea = (accion) => {
   if (!accion.tarea) {
-    throw new Error("Por favor especifica qué tarea quieres completar.");
+    return { ok: false, mensaje: "⚠️ Por favor especifica qué tarea quieres completar." };
   }
   const sheet = _getToDoSheet();
   const fila = _buscarFilaTarea(sheet, accion.tarea);
@@ -69,8 +70,9 @@ const completarTarea = (accion) => {
     sheet.getRange(fila, 4).setValue("completada");
     sheet.getRange(fila, 5).setValue(fechaActual);
     console.log(`[TODO] Tarea completada en fila ${fila}`);
+    return { ok: true, mensaje: `✅ Tarea completada: ${accion.tarea}` };
   } else {
-    throw new Error(`No se encontró ninguna tarea pendiente que coincida con "${accion.tarea}".`);
+    return { ok: false, mensaje: `⚠️ No encontré ninguna tarea pendiente que coincida con "${accion.tarea}".` };
   }
 };
 
@@ -79,7 +81,7 @@ const completarTarea = (accion) => {
  */
 const eliminarTarea = (accion) => {
   if (!accion.tarea) {
-    throw new Error("Por favor dime qué tarea específica quieres eliminar. Ej: 'borra la tarea de comprar cloro'.");
+    return { ok: false, mensaje: "⚠️ Por favor dime qué tarea específica quieres eliminar. Ej: 'borra la tarea de comprar cloro'." };
   }
   const sheet = _getToDoSheet();
   const fila = _buscarFilaTarea(sheet, accion.tarea);
@@ -87,15 +89,16 @@ const eliminarTarea = (accion) => {
   if (fila !== -1) {
     sheet.deleteRow(fila);
     console.log(`[TODO] Tarea eliminada en fila ${fila}`);
+    return { ok: true, mensaje: `🗑️ Tarea eliminada: ${accion.tarea}` };
   } else {
-    throw new Error(`No se encontró ninguna tarea pendiente que coincida con "${accion.tarea}".`);
+    return { ok: false, mensaje: `⚠️ No encontré ninguna tarea pendiente que coincida con "${accion.tarea}".` };
   }
 };
 
 /**
  * Lista las tareas pendientes por categoría o todas
  */
-const listarTareas = (accion, chatId) => {
+const listarTareas = (accion) => {
   const sheet = _getToDoSheet();
   const data = sheet.getDataRange().getValues();
   let tareas = [];
@@ -125,30 +128,28 @@ const listarTareas = (accion, chatId) => {
     mensaje += tareas.join("\n");
   }
   
-  // Enviar directamente el mensaje a Telegram
-  if (chatId && typeof sendTelegramMessage === 'function') {
-    sendTelegramMessage(chatId, mensaje);
-  }
+  return { ok: true, mensaje: mensaje };
 };
 
 /**
  * Enrutador principal de ToDo
  */
-const procesarToDo = (accion, chatId) => {
+const procesarToDo = (accion) => {
   try {
     if (accion.subtipo === "AGREGAR") {
-      agregarTarea(accion);
+      return agregarTarea(accion);
     } else if (accion.subtipo === "COMPLETAR") {
-      completarTarea(accion);
+      return completarTarea(accion);
     } else if (accion.subtipo === "ELIMINAR") {
-      eliminarTarea(accion);
+      return eliminarTarea(accion);
     } else if (accion.subtipo === "LISTAR") {
-      listarTareas(accion, chatId);
+      return listarTareas(accion);
     } else {
       console.warn(`[TODO] Subtipo desconocido: ${accion.subtipo}`);
+      return { ok: false, mensaje: `⚠️ Subtipo desconocido de tarea: ${accion.subtipo}` };
     }
   } catch (error) {
     console.error(`[TODO] Error en procesarToDo: ${error.message}`);
-    throw error;
+    return { ok: false, mensaje: `❌ Hubo un error con las tareas: ${error.message}` };
   }
 };
