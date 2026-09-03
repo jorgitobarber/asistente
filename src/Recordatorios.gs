@@ -56,11 +56,11 @@ const procesarRecordatorios = () => {
     const data = sheet.getDataRange().getValues();
     if (data.length <= 1) return; // Solo encabezados
     
-    const ahoraStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
-    // Parseamos 'ahora' manualmente para comparar
-    const [datePart, timePart] = ahoraStr.split(/,?\s+/);
-    const [day, month, year] = datePart.split('-');
-    const ahora = new Date(`${year}-${month}-${day}T${timePart}`);
+    // 'ahora' ya es un instante absoluto correcto: no hace falta reconstruirlo
+    // a partir de un string local. El bug anterior perdía el "a. m./p. m." al
+    // separar por espacios, generando siempre una fecha inválida (Invalid Date),
+    // por lo que el aviso NUNCA se disparaba.
+    const ahora = new Date();
 
     let procesados = 0;
 
@@ -75,8 +75,14 @@ const procesarRecordatorios = () => {
 
       if (!fechaAvisoStr || !horaAvisoStr) continue;
 
-      // Armamos la fecha objetivo
+      // Armamos la fecha objetivo (el proyecto usa timeZone America/Santiago
+      // en appsscript.json, así que este string sin offset se interpreta en esa zona)
       const objetivo = new Date(`${fechaAvisoStr}T${horaAvisoStr}:00`);
+
+      if (isNaN(objetivo.getTime())) {
+        console.warn(`[RECORDATORIOS] Fila ${i + 1} con fecha/hora inválida ("${fechaAvisoStr}" "${horaAvisoStr}"). Se omite.`);
+        continue;
+      }
 
       // Si la fecha actual ya superó o es igual a la fecha objetivo
       if (ahora >= objetivo) {

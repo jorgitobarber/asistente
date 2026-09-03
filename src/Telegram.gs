@@ -20,23 +20,35 @@ const getTelegramApiUrl = () => `https://api.telegram.org/bot${getTelegramToken(
  * @param {string|number} chatId - ID del chat de Telegram.
  * @param {string} text - Texto natural y detallado a enviar.
  */
-const sendTelegramMessage = (chatId, text) => {
+const sendTelegramMessage = (chatId, text, parseMode = 'Markdown') => {
   try {
-    const payload = {
-      chat_id: chatId,
-      text: text
-    };
-    
-    const options = {
+    const buildOptions = (payload) => ({
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
-    };
-    
+    });
+
     const url = `${getTelegramApiUrl()}/sendMessage`;
-    const response = UrlFetchApp.fetch(url, options);
-    
+
+    // Usamos Markdown "legacy" (no MarkdownV2) porque es más tolerante:
+    // MarkdownV2 exige escapar casi todos los signos de puntuación, y el texto
+    // que genera Gemini no viene escapado.
+    const payload = { chat_id: chatId, text: text };
+    if (parseMode) payload.parse_mode = parseMode;
+
+    let response = UrlFetchApp.fetch(url, buildOptions(payload));
+
+    if (response.getResponseCode() !== 200 && parseMode) {
+      // Gemini puede generar un asterisco o guion bajo suelto que Telegram
+      // no logra parsear como Markdown (error 400 "can't parse entities").
+      // Antes esto se "arreglaba" quitando parse_mode para siempre, lo que
+      // hacía que TODOS los mensajes salieran con asteriscos literales.
+      // En vez de eso: reintentamos solo ESE mensaje en texto plano.
+      console.warn(`[TELEGRAM] Falló con parse_mode='${parseMode}' (código ${response.getResponseCode()}). Reintentando en texto plano.`);
+      response = UrlFetchApp.fetch(url, buildOptions({ chat_id: chatId, text: text }));
+    }
+
     if (response.getResponseCode() !== 200) {
       console.error(`[TELEGRAM] Error de API. Código: ${response.getResponseCode()}, Respuesta: ${response.getContentText()}`);
     } else {
