@@ -40,14 +40,15 @@ const agregarTarea = (accion) => {
  */
 const _buscarFilaTarea = (sheet, nombreTarea) => {
   if (!nombreTarea) return -1;
-  const searchStr = nombreTarea.toString().toLowerCase();
+  const searchWords = nombreTarea.toString().toLowerCase().trim().split(/\s+/);
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     const tareaStr = data[i][2] ? data[i][2].toString().toLowerCase() : "";
     const estado = data[i][3] ? data[i][3].toString().toLowerCase() : "";
     
-    if (estado === "pendiente" && tareaStr.includes(searchStr)) {
-      return i + 1; // +1 porque el array es 0-indexed pero las filas de sheet son 1-indexed
+    if (estado === "pendiente") {
+      const match = searchWords.every(word => tareaStr.includes(word));
+      if (match) return i + 1;
     }
   }
   return -1;
