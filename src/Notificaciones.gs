@@ -13,7 +13,8 @@ const _getEventsString = (calendarId, date, endDate) => {
   events.forEach(e => {
     const start = e.getStartTime();
     const hora = start.getHours().toString().padStart(2, '0') + ':' + start.getMinutes().toString().padStart(2, '0');
-    str += "- " + hora + " (Día " + start.getDate() + "): " + e.getTitle() + "\n";
+    const sufijoDia = endDate ? " (Día " + start.getDate() + ")" : "";
+    str += "- " + hora + sufijoDia + ": " + e.getTitle() + "\n";
   });
   return str;
 };
@@ -286,19 +287,30 @@ const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
 
   const enRango = (v) => { const f = normFecha(v); return f >= startStr && f <= endStr; };
 
-  const processSheet = (name, colMonto, colCliente) => {
+  const processSheet = (name, colMonto, colCliente, isHistorial) => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return;
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       if (!enRango(data[i][0])) continue;
+      
+      // Si es historial de visitas, no sumar a caja los que están PENDIENTES
+      if (isHistorial) {
+        const estadoPago = ((data[i][7] || '') + '').toUpperCase();
+        if (estadoPago === 'PENDIENTE') {
+          // Sí sumamos el cliente, pero NO la plata
+          if (colCliente) clientes++;
+          continue; 
+        }
+      }
+
       ingresos += parseFloat(data[i][colMonto]) || 0;
       if (colCliente) clientes++;
     }
   };
 
-  processSheet('Ingresos', 3, false);           // col 3 = monto
-  processSheet('Historial_Visitas', 6, true);   // col 6 = monto, cuenta clientes
+  processSheet('Ingresos', 3, false, false);           // col 3 = monto
+  processSheet('Historial_Visitas', 6, true, true);    // col 6 = monto, col 7 = estado_pago
 
   // Gastos (restan al balance, se procesan aparte)
   const shGastos = ss.getSheetByName('Gastos');
@@ -381,5 +393,6 @@ const configurarTriggers = () => {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('enviarResumenMatutino').timeBased().everyDays(1).atHour(7).nearMinute(30).create();
   ScriptApp.newTrigger('enviarCierreDiario').timeBased().everyDays(1).atHour(22).nearMinute(30).create();
+  ScriptApp.newTrigger('procesarRecordatorios').timeBased().everyMinutes(15).create();
   console.log("Triggers instalados correctamente.");
 };

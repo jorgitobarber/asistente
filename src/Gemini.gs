@@ -164,6 +164,7 @@ CONSULTAS DE AGENDA Y PENDIENTES:
 
 DIFERENCIAR ASUNTOS PERSONALES:
 1. AGENDA (Eventos en calendario): Clases, cumpleaños, salidas. Ocupan un bloque de tiempo. Si es de todo el día (ej. "cumpleaños"), omite 'hora_estimada'.
+   - ¡CRÍTICO! NUNCA uses AGENDA para clientes de la barbería. Si pide agendar un corte/cliente, usa SIEMPRE AGENDAR_CITA.
    - "tengo clases de algebra a las 10am" → AGENDA/CREAR en UNIVERSIDAD.
    - "mañana es cumple de Nico" → AGENDA/CREAR en COMPROMISOS (sin hora_estimada).
 2. TODO (Tareas pendientes): Cosas por hacer sin hora estricta. "tengo que...", "añade a pendientes...".

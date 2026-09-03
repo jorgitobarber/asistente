@@ -86,6 +86,14 @@ const _normalizarFechaSheet = (valor) => {
   return str;
 };
 
+const _normalizarHoraSheet = (valor) => {
+  if (!valor) return '';
+  if (valor instanceof Date) {
+    return Utilities.formatDate(valor, 'America/Santiago', 'HH:mm');
+  }
+  return valor.toString().trim();
+};
+
 /**
  * Formatea una fecha YYYY-MM-DD a un string legible en español.
  * Ej: "2026-09-05" → "Vie 05 Sep"
@@ -189,6 +197,19 @@ const agendarCita = (accion, chatId) => {
     // Si es cliente nuevo, crearlo en la hoja Clientes
     if (!match.encontrado) {
       _crearClienteNuevo(nombreFinal, accion.telefono || '');
+    }
+
+    // Protección contra duplicados en el mismo día
+    const dataCitas = _getHojaCitas().getDataRange().getValues();
+    const existeCita = dataCitas.slice(1).some(r => 
+      _normalizarFechaSheet(r[0]) === fecha && 
+      _normalizar(r[2]) === _normalizar(nombreFinal) &&
+      r[5] === 'agendada'
+    );
+    
+    if (existeCita) {
+      sendTelegramMessage(chatId, `⚠️ Ojo jefe, ya existe una cita agendada para ${nombreFinal} el ${_formatearFechaLegible(fecha)}. No la crearé de nuevo para evitar duplicados.`);
+      return;
     }
 
     // Registrar en hoja Citas
@@ -373,6 +394,20 @@ const marcarVisitaPagada = (accion, chatId) => {
     sheet.getRange(filaEncontrada, 8).setValue('PAGADO'); // Col 8 = estado_pago
     console.log(`[VISITAS] Pago marcado PAGADO: ${accion.nombre_cliente}, fila ${filaEncontrada}`);
 
+    // Generar un INGRESO en la hoja de Finanzas para que el flujo de caja sume hoy
+    try {
+      const accionIngreso = {
+        tipo: 'FINANZAS',
+        subtipo: 'INGRESO',
+        monto: montoEncontrado,
+        descripcion: `Pago pendiente saldado: ${accion.nombre_cliente} (${fechaEncontrada})`
+      };
+      registrarFinanzas(accionIngreso, new Date());
+      console.log(`[VISITAS] Ingreso generado por pago pendiente de ${accion.nombre_cliente}`);
+    } catch(e) {
+      console.error(`[VISITAS] Error al generar ingreso por pago: ${e.message}`);
+    }
+
     sendTelegramMessage(chatId,
       `✅ Listo jefe! El pago de *${accion.nombre_cliente}* quedó registrado como saldado.\n` +
       `💰 $${montoEncontrado.toLocaleString('es-CL')} — ${fechaEncontrada}`
@@ -526,7 +561,7 @@ const obtenerCitasHoy = () => {
     const data = _getHojaCitas().getDataRange().getValues();
     return data.slice(1)
       .filter(r => _normalizarFechaSheet(r[0]) === hoy && r[5] !== 'inasistencia')
-      .map(r => ({ hora: r[1], nombre: r[2], servicio: r[3], addOns: r[4], estado: r[5] }))
+      .map(r => ({ hora: _normalizarHoraSheet(r[1]), nombre: r[2], servicio: r[3], addOns: r[4], estado: r[5] }))
       .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
   } catch (e) {
     console.error('[VISITAS] Error en obtenerCitasHoy: ' + e.message);
