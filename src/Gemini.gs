@@ -107,7 +107,7 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
     { "tipo": "RECORDATORIO", "subtipo": "AGREGAR", "fecha_aviso": "YYYY-MM-DD", "hora_aviso": "HH:MM", "mensaje": "string" },
     { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" },
     { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
-    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"], "estado_pago": "PAGADO|PENDIENTE" },
+    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"], "estado_pago": "PAGADO|PENDIENTE", "fecha": "YYYY-MM-DD opcional" },
     { "tipo": "MARCAR_PAGADO", "nombre_cliente": "string" },
     { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
     { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
@@ -146,12 +146,21 @@ DETECTAR PRODUCTOS Y ADD-ONS EN CONFIRMAR_VISITA:
 - "vino Juan, corte con diseño" → servicio: "Corte", add_ons: ["Diseño"]
 - "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]
 
-DETECTAR ESTADO DE PAGO EN CONFIRMAR_VISITA:
-- Sin mención de pago o "me pagó" → estado_pago: "PAGADO" (por defecto)
-- "quedó debiendo", "quedó fiado", "no pagó", "se fue sin pagar", "me debe" → estado_pago: "PENDIENTE"
+DETECTAR ESTADO DE PAGO (SOLO EN CONFIRMAR_VISITA):
+- "quedó debiendo", "no pagó", "me debe", "fiado", "sin pagar" → "estado_pago": "PENDIENTE"
+- Si no dice expresamente que NO pagó, asume siempre "estado_pago": "PAGADO" (por defecto).
 
-MARCAR PAGO POSTERIOR:
-- "Juan ya pagó", "Juan me canceló lo que debía", "Juan saldó" → MARCAR_PAGADO
+REGISTROS ATRASADOS (CONFIRMAR_VISITA):
+- "ayer vino Juan", "el martes vino pedro" → "fecha": "YYYY-MM-DD" correspondiente a ayer/martes. Si no menciona día, omite 'fecha' (asume hoy).
+
+MARCAR PAGO POSTERIOR (Deuda Saldada):
+- "Juan ya pagó", "Juan canceló lo que debía", "Juan saldó", "me pagó lo de ayer" → MARCAR_PAGADO
+¡CRÍTICO! Si el mensaje indica que alguien que ya se había ido AHORA pagó su deuda, usa MARCAR_PAGADO. ¡NUNCA uses CONFIRMAR_VISITA para esto!
+
+CONSULTAS DE AGENDA Y PENDIENTES:
+- "¿qué hay para hoy?", "resumen de hoy", "dame mi agenda", "¿qué toca hoy?" → REPORTE, subtipo: AGENDA, periodo: "HOY"
+- "¿qué tengo mañana?", "agenda de mañana" → REPORTE, subtipo: AGENDA, periodo: "MANANA"
+- "resumen de la semana", "qué hay esta semana" → REPORTE, subtipo: AGENDA, periodo: "SEMANA"
 
 DIFERENCIAR ASUNTOS PERSONALES:
 1. AGENDA (Eventos en calendario): Clases, cumpleaños, salidas. Ocupan un bloque de tiempo. Si es de todo el día (ej. "cumpleaños"), omite 'hora_estimada'.

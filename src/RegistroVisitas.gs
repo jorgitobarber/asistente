@@ -254,7 +254,7 @@ const confirmarVisita = (accion, chatId) => {
     }
 
     const nombre      = match.encontrado ? match.nombre : accion.nombre_cliente;
-    const hoy         = _hoyChile();
+    const fechaVisita = accion.fecha || _hoyChile();
     const addOnsNorm  = _normalizarAddOns(accion.add_ons);
     const prodNorm    = _normalizarProductos(accion.productos);
 
@@ -266,7 +266,7 @@ const confirmarVisita = (accion, chatId) => {
     let citaActualizada = false;
 
     for (let i = 1; i < dataCitas.length; i++) {
-      if (_normalizarFechaSheet(dataCitas[i][0]) === hoy &&
+      if (_normalizarFechaSheet(dataCitas[i][0]) === fechaVisita &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         sheetCitas.getRange(i + 1, 6).setValue('confirmada');
@@ -283,7 +283,7 @@ const confirmarVisita = (accion, chatId) => {
     // Registrar en Historial_Visitas
     const estadoPago = ((accion.estado_pago || 'PAGADO') + '').toUpperCase();
     _getHojaHistorial().appendRow([
-      hoy, horaVisita, nombre,
+      fechaVisita, horaVisita, nombre,
       servicioNorm,
       addOnsNorm.join(', '),
       prodNorm.join(', '),
@@ -293,7 +293,7 @@ const confirmarVisita = (accion, chatId) => {
     console.log(`[VISITAS] Registrado en Historial_Visitas: ${nombre} — $${monto} — ${estadoPago}`);
 
     // Actualizar última_cita en Clientes
-    if (match.encontrado) _actualizarUltimaCita(nombre, hoy, match.fila);
+    if (match.encontrado) _actualizarUltimaCita(nombre, fechaVisita, match.fila);
 
     // Descontar del inventario los productos vendidos en esta visita
     let alertasInventario = '';
@@ -314,7 +314,8 @@ const confirmarVisita = (accion, chatId) => {
     sendTelegramMessage(chatId,
       `✅ Listo jefe! ${nombre} confirmado.\n\n` +
       `✂️ ${servicioNorm}${addOnStr}${prodStr}\n` +
-      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}${alertasInventario}${pagoStr}`
+      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}${alertasInventario}${pagoStr}\n` +
+      `📅 Fecha registro: ${_formatearFechaLegible(fechaVisita)}`
     );
     console.log(`[VISITAS] Visita confirmada: ${nombre} — $${monto}`);
 
