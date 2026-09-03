@@ -37,6 +37,7 @@ function AUTORIZAR_TODO() {
     UrlFetchApp.fetch("https://google.com", {muteHttpExceptions: true});
     PropertiesService.getScriptProperties().getKeys();
     CacheService.getScriptCache().get("test");
+    ScriptApp.getProjectTriggers();
     
     console.log("✅ TODOS LOS PERMISOS CONCEDIDOS CORRECTAMENTE.");
   } catch(e) {

@@ -39,12 +39,14 @@ const agregarTarea = (accion) => {
  * Busca la fila de una tarea pendiente que coincida parcial o totalmente con el nombre
  */
 const _buscarFilaTarea = (sheet, nombreTarea) => {
+  if (!nombreTarea) return -1;
+  const searchStr = nombreTarea.toString().toLowerCase();
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     const tareaStr = data[i][2] ? data[i][2].toString().toLowerCase() : "";
     const estado = data[i][3] ? data[i][3].toString().toLowerCase() : "";
     
-    if (estado === "pendiente" && tareaStr.includes(nombreTarea.toLowerCase())) {
+    if (estado === "pendiente" && tareaStr.includes(searchStr)) {
       return i + 1; // +1 porque el array es 0-indexed pero las filas de sheet son 1-indexed
     }
   }
@@ -55,6 +57,9 @@ const _buscarFilaTarea = (sheet, nombreTarea) => {
  * Marca una tarea como completada
  */
 const completarTarea = (accion) => {
+  if (!accion.tarea) {
+    throw new Error("Por favor especifica qué tarea quieres completar.");
+  }
   const sheet = _getToDoSheet();
   const fila = _buscarFilaTarea(sheet, accion.tarea);
   
@@ -72,6 +77,9 @@ const completarTarea = (accion) => {
  * Elimina una tarea de la lista (borra la fila)
  */
 const eliminarTarea = (accion) => {
+  if (!accion.tarea) {
+    throw new Error("Por favor dime qué tarea específica quieres eliminar. Ej: 'borra la tarea de comprar cloro'.");
+  }
   const sheet = _getToDoSheet();
   const fila = _buscarFilaTarea(sheet, accion.tarea);
   
@@ -98,7 +106,9 @@ const listarTareas = (accion, chatId) => {
     
     if (estado === "pendiente") {
       if (accion.categoria && accion.categoria !== "TODAS") {
-        if (categoria.toLowerCase() === accion.categoria.toLowerCase()) {
+        const catStr = (categoria || "").toString().toLowerCase();
+        const accCat = accion.categoria.toString().toLowerCase();
+        if (catStr === accCat) {
           tareas.push(`- ${tareaStr}`);
         }
       } else {
