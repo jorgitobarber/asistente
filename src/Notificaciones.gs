@@ -164,6 +164,29 @@ const enviarCierreDiario = () => {
     let clientesPendientes = '';
     try { clientesPendientes = obtenerResumenClientesPendientes(); } catch(e) {}
 
+    // Pagos pendientes de hoy (Historial_Visitas con estado_pago = PENDIENTE)
+    let pagosPendientesHoy = [];
+    try {
+      const hoyStr = Utilities.formatDate(hoy, 'America/Santiago', 'yyyy-MM-dd');
+      const shHist = ss.getSheetByName('Historial_Visitas');
+      if (shHist) {
+        const dataHist = shHist.getDataRange().getValues();
+        for (let i = 1; i < dataHist.length; i++) {
+          const fechaFila = dataHist[i][0] instanceof Date
+            ? Utilities.formatDate(dataHist[i][0], 'America/Santiago', 'yyyy-MM-dd')
+            : (dataHist[i][0] || '').toString().trim();
+          const estadoPago = ((dataHist[i][7] || '') + '').toUpperCase() || 'PAGADO';
+          if (fechaFila === hoyStr && estadoPago === 'PENDIENTE') {
+            pagosPendientesHoy.push({
+              nombre:  dataHist[i][2],
+              servicio: dataHist[i][3],
+              monto:   parseFloat(dataHist[i][6]) || 0
+            });
+          }
+        }
+      }
+    } catch(e) { console.error('[NOTIFICACIONES] Error leyendo pagos pendientes: ' + e.message); }
+
     // ── Construcción del mensaje ────────────────────────────────────
     let msg = `🌙 *Cierre — ${_fechaTextoCorto(hoy)}*\n`;
 
@@ -194,6 +217,18 @@ const enviarCierreDiario = () => {
       pendientes.forEach(c => {
         msg += `• ${c.hora} ${c.nombre} (${c.servicio}) → "vino ${c.nombre.split(' ')[0].toLowerCase()}" o "no vino"\n`;
       });
+    }
+
+    // Pagos pendientes de hoy
+    if (pagosPendientesHoy.length > 0) {
+      msg += `\n💸 *PAGOS PENDIENTES HOY*\n`;
+      let totalPend = 0;
+      pagosPendientesHoy.forEach(p => {
+        msg += `• ${p.nombre} — ${p.servicio} — $${p.monto.toLocaleString('es-CL')}\n`;
+        totalPend += p.monto;
+      });
+      msg += `  Total pendiente: *$${totalPend.toLocaleString('es-CL')}*\n`;
+      msg += `  → Escribe "[nombre] ya pagó" para marcarlo como saldado.\n`;
     }
 
     // Mañana
@@ -229,41 +264,53 @@ const enviarCierreDiario = () => {
 
 const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
   let ingresos = 0, gastos = 0, clientes = 0;
-  dateStart.setHours(0,0,0,0);
-  dateEnd.setHours(23,59,59,999);
 
-  const parseRowDate = (v) => {
-    if (!v) return new Date(0);
-    if (typeof v === 'string') {
-      if (v.includes('/')) {
-        const p = v.split(' ')[0].split(/[\/\-]/);
-        return p[0].length === 2 ? new Date(p[2] + '-' + p[1] + '-' + p[0] + 'T12:00:00') : new Date(v + 'T12:00:00');
+  // Usar strings YYYY-MM-DD para comparar sin problemas de timezone
+  const startStr = Utilities.formatDate(dateStart, 'America/Santiago', 'yyyy-MM-dd');
+  const endStr   = Utilities.formatDate(dateEnd,   'America/Santiago', 'yyyy-MM-dd');
+
+  const normFecha = (v) => {
+    if (!v) return '';
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Santiago', 'yyyy-MM-dd');
+    const str = v.toString().trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    if (str.includes('/')) {
+      const p = str.split(' ')[0].split('/');
+      if (p.length === 3 && parseInt(p[2]) > 31) {
+        return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
       }
-      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return new Date(v + 'T12:00:00');
     }
-    return new Date(v);
+    const d = new Date(str);
+    return !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd') : '';
   };
 
-  const processSheet = (name, type) => {
+  const enRango = (v) => { const f = normFecha(v); return f >= startStr && f <= endStr; };
+
+  const processSheet = (name, colMonto, colCliente) => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return;
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-      const rowFecha = parseRowDate(data[i][0]);
-      if (isNaN(rowFecha.getTime())) continue;
-      if (rowFecha >= dateStart && rowFecha <= dateEnd) {
-        if (type === 'ingreso')   { ingresos += parseFloat(data[i][3]) || 0; }
-        if (type === 'gasto')     { gastos   += parseFloat(data[i][3]) || 0; }
-        if (type === 'clientes')  { ingresos += parseFloat(data[i][5]) || 0; clientes++; }
-        if (type === 'historial') { ingresos += parseFloat(data[i][6]) || 0; clientes++; } // Historial_Visitas col 6 = monto
-      }
+      if (!enRango(data[i][0])) continue;
+      ingresos += parseFloat(data[i][colMonto]) || 0;
+      if (colCliente) clientes++;
     }
   };
 
-  processSheet('Ingresos', 'ingreso');
-  processSheet('Gastos', 'gasto');
-  processSheet('Clientes_del_dia', 'clientes');  // sistema legado
-  processSheet('Historial_Visitas', 'historial'); // sistema nuevo
+  processSheet('Ingresos', 3, false);           // col 3 = monto
+  processSheet('Historial_Visitas', 6, true);   // col 6 = monto, cuenta clientes
+
+  // Gastos (restan al balance, se procesan aparte)
+  const shGastos = ss.getSheetByName('Gastos');
+  if (shGastos) {
+    const dataG = shGastos.getDataRange().getValues();
+    for (let i = 1; i < dataG.length; i++) {
+      if (!enRango(dataG[i][0])) continue;
+      gastos += parseFloat(dataG[i][3]) || 0;
+    }
+  }
+
+  console.log(`[FINANZAS] Rango ${startStr} → ${endStr}: ingresos=$${ingresos}, gastos=$${gastos}, clientes=${clientes}`);
   return { ingresos, gastos, clientes, balance: ingresos - gastos };
 };
 

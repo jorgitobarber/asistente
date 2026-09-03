@@ -63,7 +63,7 @@ const doPost = (e) => {
     // Acciones que mandan su propio mensaje → no duplicar con respuesta_telegram
     const ACCIONES_CON_RESPUESTA_PROPIA = new Set([
       'AGENDAR_CITA','CONFIRMAR_VISITA','INASISTENCIA','REAGENDAR_CITA',
-      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES', 'RECORDATORIO'
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','TODO','CLIENTES', 'RECORDATORIO', 'MARCAR_PAGADO'
     ]);
     let accionEnvioRespuesta = false;
 
@@ -91,6 +91,8 @@ const doPost = (e) => {
         agendarCita(accion, chatId);
       } else if (accion.tipo === "CONFIRMAR_VISITA") {
         confirmarVisita(accion, chatId);
+      } else if (accion.tipo === "MARCAR_PAGADO") {
+        marcarVisitaPagada(accion, chatId);
       } else if (accion.tipo === "INASISTENCIA") {
         registrarInasistencia(accion, chatId);
       } else if (accion.tipo === "REAGENDAR_CITA") {

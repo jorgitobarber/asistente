@@ -42,8 +42,8 @@ const _getHojaHistorial = () => {
   let sheet = ss.getSheetByName('Historial_Visitas');
   if (!sheet) {
     sheet = ss.insertSheet('Historial_Visitas');
-    sheet.appendRow(['fecha', 'hora', 'nombre_cliente', 'servicio', 'add_ons', 'productos', 'monto']);
-    console.log('[VISITAS] Hoja Historial_Visitas creada.');
+    sheet.appendRow(['fecha', 'hora', 'nombre_cliente', 'servicio', 'add_ons', 'productos', 'monto', 'estado_pago']);
+    console.log('[VISITAS] Hoja Historial_Visitas creada con campo estado_pago.');
   }
   return sheet;
 };
@@ -60,6 +60,30 @@ const _hoyChile = () => {
   const m = String(enChile.getMonth() + 1).padStart(2, '0');
   const d = String(enChile.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+/**
+ * Normaliza cualquier valor de fecha leído de Google Sheets a formato YYYY-MM-DD.
+ * Google Sheets puede devolver la fecha como objeto Date o como string según el
+ * formato de celda. Esta función garantiza siempre YYYY-MM-DD en zona horaria Santiago.
+ */
+const _normalizarFechaSheet = (valor) => {
+  if (!valor) return '';
+  if (valor instanceof Date) {
+    return Utilities.formatDate(valor, 'America/Santiago', 'yyyy-MM-dd');
+  }
+  const str = valor.toString().trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  // Formato con barras (DD/MM/YYYY)
+  if (str.includes('/')) {
+    const partes = str.split(' ')[0].split('/');
+    if (partes.length === 3 && parseInt(partes[2]) > 31) {
+      return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+    }
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd');
+  return str;
 };
 
 /**
@@ -242,7 +266,7 @@ const confirmarVisita = (accion, chatId) => {
     let citaActualizada = false;
 
     for (let i = 1; i < dataCitas.length; i++) {
-      if (dataCitas[i][0] === hoy &&
+      if (_normalizarFechaSheet(dataCitas[i][0]) === hoy &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         sheetCitas.getRange(i + 1, 6).setValue('confirmada');
@@ -257,13 +281,16 @@ const confirmarVisita = (accion, chatId) => {
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, prodNorm);
 
     // Registrar en Historial_Visitas
+    const estadoPago = ((accion.estado_pago || 'PAGADO') + '').toUpperCase();
     _getHojaHistorial().appendRow([
       hoy, horaVisita, nombre,
       servicioNorm,
       addOnsNorm.join(', '),
       prodNorm.join(', '),
-      monto
+      monto,
+      estadoPago
     ]);
+    console.log(`[VISITAS] Registrado en Historial_Visitas: ${nombre} — $${monto} — ${estadoPago}`);
 
     // Actualizar última_cita en Clientes
     if (match.encontrado) _actualizarUltimaCita(nombre, hoy, match.fila);
@@ -282,17 +309,77 @@ const confirmarVisita = (accion, chatId) => {
     const addOnStr  = addOnsNorm.length ? ` + ${addOnsNorm.join(', ')}` : '';
     const prodStr   = prodNorm.length   ? `\n🧴 Productos: ${prodNorm.join(', ')}` : '';
     const notaExtra = !citaActualizada  ? '\n📝 No tenía cita previa registrada, lo anoté igual.' : '';
+    const pagoStr   = estadoPago === 'PENDIENTE' ? '\n⚠️ *PAGO PENDIENTE* — aparecerá en el cierre de esta noche.' : '';
 
     sendTelegramMessage(chatId,
       `✅ Listo jefe! ${nombre} confirmado.\n\n` +
       `✂️ ${servicioNorm}${addOnStr}${prodStr}\n` +
-      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}${alertasInventario}`
+      `💰 $${monto.toLocaleString('es-CL')}${notaExtra}${alertasInventario}${pagoStr}`
     );
     console.log(`[VISITAS] Visita confirmada: ${nombre} — $${monto}`);
 
   } catch (error) {
     console.error(`[VISITAS] Error en confirmarVisita: ${error.message}`);
     sendTelegramMessage(chatId, '❌ No pude confirmar la visita.');
+  }
+};
+
+// ─── Marcar visita como pagada ────────────────────────────────────────────────
+
+/**
+ * Marca como PAGADO el cobro más reciente pendiente de un cliente.
+ * Actualiza la fila existente en Historial_Visitas sin duplicar registros.
+ * Se activa con mensajes tipo "Juan ya pagó" o "Juan saldó lo que debía".
+ */
+const marcarVisitaPagada = (accion, chatId) => {
+  try {
+    const sheet   = _getHojaHistorial();
+    const data    = sheet.getDataRange().getValues();
+    const busqueda = _normalizar(accion.nombre_cliente || '');
+
+    if (!busqueda) {
+      sendTelegramMessage(chatId, '⚠️ Dime el nombre del cliente cuyo pago quieres marcar.');
+      return;
+    }
+
+    let filaEncontrada  = -1;
+    let montoEncontrado = 0;
+    let fechaEncontrada = '';
+
+    // Recorremos de abajo hacia arriba → encontramos el más reciente con PENDIENTE
+    for (let i = data.length - 1; i >= 1; i--) {
+      const nombreFila = _normalizar((data[i][2] || '').toString());
+      const estadoPago = ((data[i][7] || '') + '').toUpperCase() || 'PAGADO';
+
+      if (nombreFila === busqueda || nombreFila.includes(busqueda) || busqueda.includes(nombreFila)) {
+        if (estadoPago === 'PENDIENTE') {
+          filaEncontrada  = i + 1; // 1-indexed para getRange
+          montoEncontrado = parseFloat(data[i][6]) || 0;
+          fechaEncontrada = _normalizarFechaSheet(data[i][0]);
+          break;
+        }
+      }
+    }
+
+    if (filaEncontrada === -1) {
+      sendTelegramMessage(chatId,
+        `⚠️ No encontré pagos pendientes de *${accion.nombre_cliente}*.\n` +
+        `Si el nombre está bien escrito, ya está todo al día. ✅`
+      );
+      return;
+    }
+
+    sheet.getRange(filaEncontrada, 8).setValue('PAGADO'); // Col 8 = estado_pago
+    console.log(`[VISITAS] Pago marcado PAGADO: ${accion.nombre_cliente}, fila ${filaEncontrada}`);
+
+    sendTelegramMessage(chatId,
+      `✅ Listo jefe! El pago de *${accion.nombre_cliente}* quedó registrado como saldado.\n` +
+      `💰 $${montoEncontrado.toLocaleString('es-CL')} — ${fechaEncontrada}`
+    );
+
+  } catch (error) {
+    console.error(`[VISITAS] Error en marcarVisitaPagada: ${error.message}`);
+    sendTelegramMessage(chatId, '❌ No pude marcar el pago. Intenta de nuevo.');
   }
 };
 
@@ -314,7 +401,7 @@ const registrarInasistencia = (accion, chatId) => {
     let actualizado  = false;
 
     for (let i = 1; i < dataCitas.length; i++) {
-      if (dataCitas[i][0] === hoy &&
+      if (_normalizarFechaSheet(dataCitas[i][0]) === hoy &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         sheetCitas.getRange(i + 1, 6).setValue('inasistencia');
@@ -437,9 +524,9 @@ const obtenerCitasHoy = () => {
     const hoy  = _hoyChile();
     const data = _getHojaCitas().getDataRange().getValues();
     return data.slice(1)
-      .filter(r => r[0] === hoy && r[5] !== 'inasistencia')
+      .filter(r => _normalizarFechaSheet(r[0]) === hoy && r[5] !== 'inasistencia')
       .map(r => ({ hora: r[1], nombre: r[2], servicio: r[3], addOns: r[4], estado: r[5] }))
-      .sort((a, b) => a.hora.localeCompare(b.hora));
+      .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
   } catch (e) {
     console.error('[VISITAS] Error en obtenerCitasHoy: ' + e.message);
     return [];
@@ -455,7 +542,7 @@ const obtenerCitasPendientesConfirmar = () => {
     const hoy  = _hoyChile();
     const data = _getHojaCitas().getDataRange().getValues();
     return data.slice(1)
-      .filter(r => r[0] === hoy && r[5] === 'agendada')
+      .filter(r => _normalizarFechaSheet(r[0]) === hoy && r[5] === 'agendada')
       .map(r => ({ hora: r[1], nombre: r[2], servicio: r[3] }));
   } catch (e) {
     console.error('[VISITAS] Error en obtenerCitasPendientesConfirmar: ' + e.message);
@@ -600,4 +687,21 @@ const test_LimpiarCitasSept3 = () => {
 
   console.log(`[LIMPIEZA] Total: ${borrados} filas borradas de Citas.`);
   console.log('[LIMPIEZA] Listo. Ahora puedes volver a agendar a estos clientes.');
+};
+
+/**
+ * TEST: Muestra el estado de pagos en Historial_Visitas.
+ * Ejecutar en GAS Editor para verificar que estado_pago se guarda correctamente.
+ */
+const test_EstadoPagos = () => {
+  console.log('--- test_EstadoPagos ---');
+  const sheet = _getHojaHistorial();
+  const data  = sheet.getDataRange().getValues();
+  console.log(`Total filas en Historial_Visitas: ${data.length - 1}`);
+  const pendientes = data.slice(1).filter(r => ((r[7] || '') + '').toUpperCase() === 'PENDIENTE');
+  const sin_estado = data.slice(1).filter(r => !r[7] || r[7] === '');
+  console.log(`Pagos PENDIENTES: ${pendientes.length}`);
+  pendientes.forEach(r => console.log(`  - ${r[2]} | ${r[3]} | $${r[6]} | ${_normalizarFechaSheet(r[0])}`));
+  console.log(`Sin campo estado_pago (filas antiguas): ${sin_estado.length}`);
+  console.log('--- Fin test ---');
 };

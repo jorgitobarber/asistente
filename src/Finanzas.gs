@@ -41,32 +41,6 @@ const registrarFinanzas = (accion, fechaActual) => {
       sheet.appendRow([fecha, hora, accion.descripcion, accion.monto]);
       console.log(`[FINANZAS] Ingreso registrado: $${accion.monto} - ${accion.descripcion}`);
     }
-    else if (accion.subtipo === "CLIENTE_DIA") {
-      const sheet = _getOrCreateSheet(ss, "Clientes_del_dia", ["fecha", "hora_cita", "reportado", "servicios", "productos", "total"]);
-      
-      let total = 0;
-      const servicios = accion.servicios || [];
-      const productos = accion.productos || [];
-      const preciosBarberia = getPreciosBarberia();
-      
-      servicios.forEach(s => {
-        if (preciosBarberia[s]) total += preciosBarberia[s];
-      });
-      productos.forEach(p => {
-        if (preciosBarberia[p]) total += preciosBarberia[p];
-      });
-      
-      sheet.appendRow([
-        fecha,
-        accion.hora_cita || hora,
-        "sí",
-        servicios.join(", "),
-        productos.join(", "),
-        total
-      ]);
-      console.log(`[FINANZAS] Cliente registrado: Hora ${accion.hora_cita || hora}, Total $${total}`);
-    }
-
   } catch (error) {
     console.error(`[FINANZAS] Error en registrarFinanzas: ${error.message}`);
     throw error;

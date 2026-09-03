@@ -100,7 +100,6 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
 {
   "acciones": [
     { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string" },
-    { "tipo": "FINANZAS", "subtipo": "CLIENTE_DIA", "servicios": ["Corte", "Corte + Barba"], "productos": ["Cera", "Texturizador"], "hora_cita": "HH:MM" },
     { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
     { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
     { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
@@ -108,7 +107,8 @@ Debes devolver UNICAMENTE un JSON válido con esta estructura:
     { "tipo": "RECORDATORIO", "subtipo": "AGREGAR", "fecha_aviso": "YYYY-MM-DD", "hora_aviso": "HH:MM", "mensaje": "string" },
     { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" },
     { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
-    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"] },
+    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"], "estado_pago": "PAGADO|PENDIENTE" },
+    { "tipo": "MARCAR_PAGADO", "nombre_cliente": "string" },
     { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
     { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
     { "tipo": "VENTA_PRODUCTO", "producto": "Cera|Texturizador", "cantidad": 1, "nombre_cliente": "string opcional" },
@@ -145,6 +145,13 @@ DETECTAR PRODUCTOS Y ADD-ONS EN CONFIRMAR_VISITA:
 - "ya vino Juan, se llevó cera" → productos: ["Cera"]
 - "vino Juan, corte con diseño" → servicio: "Corte", add_ons: ["Diseño"]
 - "vino Juan, corte y barba, polvos" → servicio: "Corte + Barba", productos: ["Texturizador"]
+
+DETECTAR ESTADO DE PAGO EN CONFIRMAR_VISITA:
+- Sin mención de pago o "me pagó" → estado_pago: "PAGADO" (por defecto)
+- "quedó debiendo", "quedó fiado", "no pagó", "se fue sin pagar", "me debe" → estado_pago: "PENDIENTE"
+
+MARCAR PAGO POSTERIOR:
+- "Juan ya pagó", "Juan me canceló lo que debía", "Juan saldó" → MARCAR_PAGADO
 
 DIFERENCIAR ASUNTOS PERSONALES:
 1. AGENDA (Eventos en calendario): Clases, cumpleaños, salidas. Ocupan un bloque de tiempo. Si es de todo el día (ej. "cumpleaños"), omite 'hora_estimada'.
