@@ -212,20 +212,12 @@ const agendarCita = (accion, chatId) => {
       return;
     }
 
-    // Registrar en hoja Citas
-    _getHojaCitas().appendRow([
-      fecha, hora, nombreFinal,
-      servicioNorm,
-      addOnsNorm.join(', '),
-      'agendada',
-      '', '', '' // nueva_fecha, nueva_hora, id_evento_calendar
-    ]);
-
     // Crear evento en Google Calendar (calendario Barbería → sincroniza al iPhone)
     const addOnStr     = addOnsNorm.length  ? ` + ${addOnsNorm.join(', ')}` : '';
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, []);
     const esNuevo      = !match.encontrado ? '\n👤 *Cliente nuevo* — lo agregué a tu lista.' : '';
 
+    let eventId = '';
     try {
       const titulo = `✂️ ${nombreFinal} — ${servicioNorm}${addOnStr}`;
       const accionCalendar = {
@@ -238,8 +230,8 @@ const agendarCita = (accion, chatId) => {
         PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
       );
       if (calBarberia) {
-        crearEvento(accionCalendar, calBarberia);
-        console.log(`[VISITAS] Evento creado en Calendar: ${titulo}`);
+        eventId = crearEvento(accionCalendar, calBarberia) || '';
+        console.log(`[VISITAS] Evento creado en Calendar: ${titulo} (ID: ${eventId})`);
       } else {
         console.warn('[VISITAS] CALENDAR_BARBERIA_ID no configurado, saltando Calendar.');
       }
@@ -247,6 +239,15 @@ const agendarCita = (accion, chatId) => {
       console.warn(`[VISITAS] No se pudo crear evento en Calendar: ${calErr.message}`);
       // No falla el flujo completo si el calendar falla
     }
+
+    // Registrar en hoja Citas
+    _getHojaCitas().appendRow([
+      fecha, hora, nombreFinal,
+      servicioNorm,
+      addOnsNorm.join(', '),
+      'agendada',
+      '', '', eventId // nueva_fecha, nueva_hora, id_evento_calendar
+    ]);
 
     sendTelegramMessage(chatId,
       `✅ Agendado jefe!\n\n` +
@@ -440,8 +441,26 @@ const registrarInasistencia = (accion, chatId) => {
       if (_normalizarFechaSheet(dataCitas[i][0]) === hoy &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
+        const eventId = dataCitas[i][8];
         sheetCitas.getRange(i + 1, 6).setValue('inasistencia');
         actualizado = true;
+
+        // Borrar del calendario
+        try {
+          const calBarberia = CalendarApp.getCalendarById(
+            PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+          );
+          if (calBarberia && eventId) {
+            const ev = calBarberia.getEventById(eventId);
+            if (ev) {
+              ev.deleteEvent();
+              console.log(`[VISITAS] Evento borrado de Calendar por inasistencia: ${eventId}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`[VISITAS] No se pudo borrar inasistencia de Calendar: ${e.message}`);
+        }
+
         break;
       }
     }
@@ -481,55 +500,70 @@ const reagendarCita = (accion, chatId) => {
           dataCitas[i][5] === 'agendada') {
 
         // Guardar datos de la cita vieja antes de marcarla
-        const viejaFecha   = dataCitas[i][0];
-        const viejaHora    = dataCitas[i][1];
+        const viejaFecha    = dataCitas[i][0];
+        const viejaHora     = dataCitas[i][1];
         const viejoServicio = dataCitas[i][3];
         const viejosAddOns  = dataCitas[i][4];
+        const viejoEventId  = dataCitas[i][8];
 
         sheetCitas.getRange(i + 1, 6).setValue('reagendada');
         sheetCitas.getRange(i + 1, 7).setValue(accion.nueva_fecha || '');
         sheetCitas.getRange(i + 1, 8).setValue(accion.nueva_hora  || '');
 
-        // Crear nueva cita con la fecha nueva
+        // Actualizar Google Calendar: borrar evento viejo, crear nuevo
+        let nuevoEventId = '';
+        try {
+          const calBarberia = CalendarApp.getCalendarById(
+            PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+          );
+          if (calBarberia) {
+            // 1. Borrar evento viejo
+            if (viejoEventId) {
+              try {
+                const evViejo = calBarberia.getEventById(viejoEventId);
+                if (evViejo) {
+                  evViejo.deleteEvent();
+                  console.log(`[VISITAS] Evento Calendar viejo borrado por ID: ${viejoEventId}`);
+                }
+              } catch(e) {
+                console.warn(`[VISITAS] No se pudo borrar evento viejo por ID: ${e.message}`);
+              }
+            } else if (viejaFecha && viejaHora) {
+              // Fallback
+              const fechaVieja = _parseDateTime(viejaFecha, viejaHora);
+              const eventos = calBarberia.getEvents(
+                new Date(fechaVieja.getTime() - 5 * 60000),
+                new Date(fechaVieja.getTime() + 5 * 60000)
+              );
+              eventos.forEach(ev => {
+                if (_normalizar(ev.getTitle()).includes(_normalizar(nombre))) {
+                  ev.deleteEvent();
+                  console.log(`[VISITAS] Evento Calendar borrado (fallback): ${ev.getTitle()}`);
+                }
+              });
+            }
+
+            // 2. Crear evento nuevo
+            const addOnStr = viejosAddOns ? ` + ${viejosAddOns}` : '';
+            nuevoEventId = crearEvento({
+              evento: `✂️ ${nombre} — ${viejoServicio}${addOnStr}`,
+              fecha_estimada: accion.nueva_fecha,
+              hora_estimada:  accion.nueva_hora || '09:00',
+              ignorar_choques: true
+            }, calBarberia) || '';
+          }
+        } catch (calErr) {
+          console.warn(`[VISITAS] No pude actualizar Calendar al reagendar: ${calErr.message}`);
+        }
+
+        // Crear nueva cita con la fecha nueva y el ID nuevo
         sheetCitas.appendRow([
           accion.nueva_fecha, accion.nueva_hora, nombre,
           viejoServicio,
           viejosAddOns,
           'agendada',
-          '', '', ''
+          '', '', nuevoEventId
         ]);
-
-        // Actualizar Google Calendar: borrar evento viejo, crear nuevo
-        try {
-          const calBarberia = CalendarApp.getCalendarById(
-            PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
-          );
-          if (calBarberia && viejaFecha && viejaHora) {
-            const fechaVieja = _parseDateTime(viejaFecha, viejaHora);
-            // Buscar eventos del cliente en ±5 min de la hora original
-            const eventos = calBarberia.getEvents(
-              new Date(fechaVieja.getTime() - 5 * 60000),
-              new Date(fechaVieja.getTime() + 5 * 60000)
-            );
-            eventos.forEach(ev => {
-              if (_normalizar(ev.getTitle()).includes(_normalizar(nombre))) {
-                ev.deleteEvent();
-                console.log(`[VISITAS] Evento Calendar borrado: ${ev.getTitle()}`);
-              }
-            });
-
-            // Crear evento nuevo
-            const addOnStr = viejosAddOns ? ` + ${viejosAddOns}` : '';
-            crearEvento({
-              evento: `✂️ ${nombre} — ${viejoServicio}${addOnStr}`,
-              fecha_estimada: accion.nueva_fecha,
-              hora_estimada:  accion.nueva_hora || '09:00',
-              ignorar_choques: true
-            }, calBarberia);
-          }
-        } catch (calErr) {
-          console.warn(`[VISITAS] No pude actualizar Calendar al reagendar: ${calErr.message}`);
-        }
 
         actualizado = true;
         break;

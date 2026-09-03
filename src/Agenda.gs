@@ -53,6 +53,15 @@ const _parseDateTime = (fechaStr, horaStr) => {
  * Busca un evento en el día especificado que coincida con el nombre
  */
 const _buscarEventoUnico = (accion, calendar) => {
+  if (accion.id_evento_calendar) {
+    try {
+      const ev = calendar.getEventById(accion.id_evento_calendar);
+      if (ev) return ev;
+    } catch(e) {
+      console.warn(`[AGENDA] No se encontró el evento por ID ${accion.id_evento_calendar}, intentando fallback...`);
+    }
+  }
+
   let startSearch, endSearch;
   let searchTitle = accion.evento;
 
@@ -107,14 +116,16 @@ const crearEvento = (accion, calendar) => {
     }
   }
 
+  let eventObj;
   if (isAllDay) {
     const dateOnly = new Date(startTime.getFullYear(), startTime.getMonth(), startTime.getDate());
-    calendar.createAllDayEvent(accion.evento, dateOnly);
+    eventObj = calendar.createAllDayEvent(accion.evento, dateOnly);
     console.log(`[AGENDA] Creado evento All-Day: ${accion.evento} el ${dateOnly}`);
   } else {
-    calendar.createEvent(accion.evento, startTime, endTime);
+    eventObj = calendar.createEvent(accion.evento, startTime, endTime);
     console.log(`[AGENDA] Creado: ${accion.evento} el ${startTime}`);
   }
+  return eventObj.getId();
 };
 
 /**
