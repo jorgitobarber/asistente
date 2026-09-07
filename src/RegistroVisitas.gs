@@ -24,6 +24,10 @@ const PRECIOS_CATALOG = {
   }
 };
 
+const getServiciosGemini = () => Object.keys(PRECIOS_CATALOG.servicios).join('|');
+const getAddOnsGemini = () => Object.keys(PRECIOS_CATALOG.addOns).join('|');
+const getProductosGemini = () => Object.keys(PRECIOS_CATALOG.productos).join('|');
+
 // ─── Sheet helpers ────────────────────────────────────────────────────────────
 
 const _getHojaCitas = () => {

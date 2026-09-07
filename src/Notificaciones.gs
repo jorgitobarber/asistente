@@ -390,9 +390,15 @@ const generarReporteAgendaBajoDemanda = (accion, chatId) => {
 };
 
 const configurarTriggers = () => {
-  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+  const triggers = ScriptApp.getProjectTriggers();
+  if (triggers.length > 0) {
+    console.log(`[TRIGGERS] Eliminando ${triggers.length} triggers existentes: ` + triggers.map(t => t.getHandlerFunction()).join(', '));
+    triggers.forEach(t => ScriptApp.deleteTrigger(t));
+  }
+  
   ScriptApp.newTrigger('enviarResumenMatutino').timeBased().everyDays(1).atHour(7).nearMinute(30).create();
   ScriptApp.newTrigger('enviarCierreDiario').timeBased().everyDays(1).atHour(22).nearMinute(30).create();
   ScriptApp.newTrigger('procesarRecordatorios').timeBased().everyMinutes(15).create();
-  console.log("Triggers instalados correctamente.");
+  
+  console.log("[TRIGGERS] 3 Triggers instalados correctamente: enviarResumenMatutino, enviarCierreDiario, procesarRecordatorios.");
 };

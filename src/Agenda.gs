@@ -107,7 +107,13 @@ const crearEvento = (accion, calendar) => {
   const isAllDay = !accion.hora_estimada || accion.hora_estimada.includes('opcional');
   const horaParsed = isAllDay ? "12:00" : accion.hora_estimada;
   const startTime = _parseDateTime(accion.fecha_estimada, horaParsed);
-  const endTime = new Date(startTime.getTime() + (60 * 60 * 1000)); // 1 hora
+  let duracionMin = 60;
+  const tituloLC = (accion.evento || '').toLowerCase();
+  if (tituloLC.includes('corte') && tituloLC.includes('barba')) duracionMin = 45;
+  else if (tituloLC.includes('corte')) duracionMin = 30;
+  else if (tituloLC.includes('perfilado') || tituloLC.includes('diseño') || tituloLC.includes('cejas')) duracionMin = 15;
+  
+  const endTime = new Date(startTime.getTime() + (duracionMin * 60 * 1000));
   
   if (!accion.ignorar_choques && !isAllDay) {
     const choques = _verificarChoques(startTime, endTime);

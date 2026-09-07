@@ -20,7 +20,7 @@ const getTelegramApiUrl = () => `https://api.telegram.org/bot${getTelegramToken(
  * @param {string|number} chatId - ID del chat de Telegram.
  * @param {string} text - Texto natural y detallado a enviar.
  */
-const sendTelegramMessage = (chatId, text, parseMode = 'Markdown') => {
+const sendTelegramMessage = (chatId, text, parseMode = 'HTML') => {
   try {
     const buildOptions = (payload) => ({
       method: 'post',
@@ -31,9 +31,8 @@ const sendTelegramMessage = (chatId, text, parseMode = 'Markdown') => {
 
     const url = `${getTelegramApiUrl()}/sendMessage`;
 
-    // Usamos Markdown "legacy" (no MarkdownV2) porque es más tolerante:
-    // MarkdownV2 exige escapar casi todos los signos de puntuación, y el texto
-    // que genera Gemini no viene escapado.
+    // Usamos HTML en lugar de Markdown porque es más robusto y genera menos
+    // errores de parseo con caracteres especiales (solo requiere escapar <, >, &).
     const payload = { chat_id: chatId, text: text };
     if (parseMode) payload.parse_mode = parseMode;
 

@@ -9,7 +9,7 @@
 - **Caché / Idempotencia:** Google CacheService (Para evitar procesar mensajes duplicados de Telegram).
 - **Procesamiento NLP:** Gemini API (Clasificador de intenciones multi-acción).
 - **Base de Datos:** Google Sheets (Pestañas: `Gastos`, `Ingresos`, `Clientes_del_dia`, `To_Do`).
-- **Gestión de Tiempo:** Google Calendar (Calendarios: `Barberia`, `Universidad`).
+- **Gestión de Tiempo:** Google Calendar (Calendarios: `Barberia`, `Universidad`, `Compromisos`).
 
 ## 2. Flujo Lógico Optimizado (Diagrama)
 
@@ -52,9 +52,16 @@ Para mantener el proyecto escalable y manejable en Apps Script, se dividirán la
 - `Main.gs`: Punto de entrada (`doPost`), control de errores con bloque `try/catch` global y ruteador principal.
 - `Telegram.gs`: Funciones exclusivas para envío de mensajes a la API de Telegram y formateo de texto adaptado a iOS.
 - `Gemini.gs`: Construcción de prompts dinámicos y llamada a la API de Google Gemini, incluyendo validación del JSON de respuesta.
-- `Finanzas.gs`: Lógica para conectarse a Google Sheets (`SpreadsheetApp`) e insertar filas.
-- `Agenda.gs`: Lógica para conectarse a Google Calendar (`CalendarApp`).
+- `Finanzas.gs` / `Inventario.gs`: Lógica para finanzas e inventario.
+- `Agenda.gs` / `RegistroVisitas.gs` / `ClientesRecuperacion.gs`: Todo el flujo de citas y seguimientos.
+- `ToDo.gs` / `Recordatorios.gs`: Gestión de tareas y avisos programados.
+- `Notificaciones.gs`: Gatillos automáticos (triggers) para resúmenes matutinos y nocturnos.
+- `FixWebhook.gs`: Scripts de autodiagnóstico y re-despliegue del Webhook.
 - `Utils.gs`: Funciones transversales como formateo de fechas locales de Chile y manejo del `CacheService`.
+
+## 4. TRABAJO EN CURSO
+- Migrando todas las respuestas directas a Telegram hacia un modelo de retorno consolidado (`return {ok: true, mensaje: "..."}`).
+- Evaluando sistema de deduplicación y tracking histórico de clientes (`Historial_Visitas`).
 
 ## 4. MANDATO ESTRICTO PARA EL AGENTE DE IA (TÚ)
 Al leer este documento para asistir a Jorge, debes adoptar la postura de un **Tech Lead Senior y Arquitecto de Software Crítico**:

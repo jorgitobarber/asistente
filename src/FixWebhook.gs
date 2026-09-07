@@ -3,8 +3,12 @@
  * Esto forzará que tu Webhook use la versión correcta del código que acabamos de publicar.
  */
 function REPARAR_BOT() {
-  const deploymentId = "AKfycbyus30oui7-OBs0juT-GE9wIirMERvHuJzy5UOLURna13tdx9kUgkdOjjdKpO_glvh8pg";
-  const nuevaUrl = "https://script.google.com/macros/s/" + deploymentId + "/exec";
+  const nuevaUrl = ScriptApp.getService().getUrl();
+  
+  if (!nuevaUrl || !nuevaUrl.includes('macros/s/')) {
+    console.error("❌ No se pudo obtener la URL. Asegúrate de ejecutar esto desde un Web App desplegado activo.");
+    return;
+  }
   
   // 1. Guardar la nueva URL en las propiedades del script
   PropertiesService.getScriptProperties().setProperty('WEBAPP_URL', nuevaUrl);

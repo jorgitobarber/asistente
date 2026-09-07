@@ -104,15 +104,15 @@ Devuelve SOLO JSON válido:
     { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM opcional", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM opcional", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
     { "tipo": "RECORDATORIO", "subtipo": "AGREGAR", "fecha_aviso": "YYYY-MM-DD", "hora_aviso": "HH:MM", "mensaje": "string" },
     { "tipo": "CLIENTES", "subtipo": "CONTACTOS_CONFIRMADO" },
-    { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"] },
-    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "Corte|Corte + Barba", "add_ons": ["Diseño"], "productos": ["Cera", "Texturizador"], "estado_pago": "PAGADO|PENDIENTE", "fecha": "YYYY-MM-DD opcional" },
+    { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "${getServiciosGemini()}", "add_ons": ["${getAddOnsGemini()}"] },
+    { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "${getServiciosGemini()}", "add_ons": ["${getAddOnsGemini()}"], "productos": ["${getProductosGemini()}"], "estado_pago": "PAGADO|PENDIENTE", "fecha": "YYYY-MM-DD opcional" },
     { "tipo": "MARCAR_PAGADO", "nombre_cliente": "string" },
     { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
     { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
-    { "tipo": "VENTA_PRODUCTO", "producto": "Cera|Texturizador", "cantidad": 1, "nombre_cliente": "string opcional" },
-    { "tipo": "REABASTECER", "producto": "Cera|Texturizador", "cantidad": 1, "costo_total": 0 }
+    { "tipo": "VENTA_PRODUCTO", "producto": "${getProductosGemini()}", "cantidad": 1, "nombre_cliente": "string opcional" },
+    { "tipo": "REABASTECER", "producto": "${getProductosGemini()}", "cantidad": 1, "costo_total": 0 }
   ],
-  "respuesta_telegram": "Mensaje natural con emojis. Si es REPORTE->AGENDA, di 'Revisando agenda...' corto."
+  "respuesta_telegram": "Mensaje natural con emojis. Usa etiquetas HTML (<b>, <i>) para formato, NUNCA uses Markdown (*). Escapa siempre los <, >, y & literales que uses en el texto. Si es REPORTE->AGENDA, di 'Revisando agenda...' corto."
 }
 JSON REGLAS: Sin comas finales, sin doble comillas en valores, sin saltos de linea en strings.
 BARBERIA:
