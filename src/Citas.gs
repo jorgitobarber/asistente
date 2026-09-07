@@ -128,10 +128,6 @@ const agendarCita = (accion, chatId) => {
     const fecha        = accion.fecha || _hoyChile();
     const hora         = accion.hora  || '';
 
-    if (!match.encontrado) {
-      _crearClienteNuevo(nombreFinal, accion.telefono || '');
-    }
-
     const dataCitas = _getHojaCitas().getDataRange().getValues();
     const existeCita = dataCitas.slice(1).some(r => 
       _normalizarFechaSheet(r[0]) === fecha && 
@@ -147,37 +143,54 @@ const agendarCita = (accion, chatId) => {
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, []);
     const esNuevo      = !match.encontrado ? '\n👤 <i>Cliente nuevo</i> — lo agregué a tu lista.' : '';
 
+    // Validar Calendar antes de tocar nada en Sheets
+    const calId = PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID');
+    if (!calId) {
+      return {ok: false, mensaje: `❌ <b>Calendar no configurado:</b> Falta la variable CALENDAR_BARBERIA_ID. Cita abortada.`};
+    }
+    const calBarberia = CalendarApp.getCalendarById(calId);
+    if (!calBarberia) {
+      return {ok: false, mensaje: `❌ <b>Calendar inaccesible:</b> No pude acceder al calendario con ID ${calId}. Cita abortada.`};
+    }
+
     let eventId = '';
+    const titulo = `✂️ ${nombreFinal} — ${servicioNorm}${addOnStr}`;
     try {
-      const titulo = `✂️ ${nombreFinal} — ${servicioNorm}${addOnStr}`;
       const accionCalendar = {
         evento: titulo,
         fecha_estimada: fecha,
         hora_estimada: hora || '09:00',
         ignorar_choques: true
       };
-      const calBarberia = CalendarApp.getCalendarById(
-        PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
-      );
-      if (calBarberia) {
-        eventId = crearEvento(accionCalendar, calBarberia) || '';
-        console.log(`[VISITAS] Evento creado en Calendar: ${titulo} (ID: ${eventId})`);
-      } else {
-        console.warn('[VISITAS] CALENDAR_BARBERIA_ID no configurado, saltando Calendar.');
-      }
+      eventId = crearEvento(accionCalendar, calBarberia) || '';
+      console.log(`[VISITAS] Evento creado en Calendar: ${titulo} (ID: ${eventId})`);
     } catch (calErr) {
-      console.warn(`[VISITAS] No se pudo crear evento en Calendar: ${calErr.message}`);
       console.error(`[VISITAS] ERROR DE CALENDAR: ${calErr.message}`);
       return {ok: false, mensaje: `❌ <b>Error agendando en Calendar:</b> ${escapeHtml(calErr.message)}.\nNo he registrado la cita en Sheets para evitar desincronización.`};
     }
 
-    _getHojaCitas().appendRow([
-      fecha, hora, nombreFinal,
-      servicioNorm,
-      addOnsNorm.join(', '),
-      'agendada',
-      '', '', eventId
-    ]);
+    // Ahora sí escribimos en Sheets
+    try {
+      if (!match.encontrado) {
+        _crearClienteNuevo(nombreFinal, accion.telefono || '');
+      }
+
+      _getHojaCitas().appendRow([
+        fecha, hora, nombreFinal,
+        servicioNorm,
+        addOnsNorm.join(', '),
+        'agendada',
+        '', '', eventId
+      ]);
+    } catch (sheetErr) {
+      console.error(`[VISITAS] Error al escribir en Sheets. Intentando borrar evento huérfano. Detalle: ${sheetErr.message}`);
+      try {
+        if (eventId) calBarberia.getEventById(eventId).deleteEvent();
+      } catch (e) {
+        console.error(`[VISITAS] No se pudo borrar el evento huérfano ${eventId}.`);
+      }
+      return {ok: false, mensaje: `❌ <b>Error crítico en Sheets:</b> ${escapeHtml(sheetErr.message)}.\nHe abortado el registro. (Se deshizo el evento en Calendar).`};
+    }
 
     console.log(`[VISITAS] Cita agendada: ${nombreFinal} — ${fecha} ${hora}`);
     return {ok: true, mensaje: `✅ Agendado jefe!\n\n` +
@@ -207,47 +220,66 @@ const confirmarVisita = (accion, chatId) => {
     const addOnsNorm  = _normalizarAddOns(accion.add_ons);
     const prodNorm    = _normalizarProductos(accion.productos);
 
+    // Pre-validar stock ANTES de tocar nada
+    const checkStock = prevalidarStockBatch(prodNorm);
+    if (!checkStock.ok) {
+      return {ok: false, mensaje: checkStock.mensajeError};
+    }
+
     const sheetCitas  = _getHojaCitas();
     const dataCitas   = sheetCitas.getDataRange().getValues();
     let servicioBase  = accion.servicio || '';
     let horaVisita    = '';
     let citaActualizada = false;
+    let filaCitaOriginal = -1;
 
     for (let i = 1; i < dataCitas.length; i++) {
       if (_normalizarFechaSheet(dataCitas[i][0]) === fechaVisita &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
-        sheetCitas.getRange(i + 1, 6).setValue('confirmada');
+        filaCitaOriginal = i + 1;
         if (!servicioBase) servicioBase = dataCitas[i][3];
         horaVisita     = dataCitas[i][1];
-        citaActualizada = true;
         break;
       }
     }
 
     const servicioNorm = _normalizarServicio(servicioBase);
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, prodNorm);
+    const estadoPago   = ((accion.estado_pago || 'PAGADO') + '').toUpperCase();
 
-    const estadoPago = ((accion.estado_pago || 'PAGADO') + '').toUpperCase();
-    _getHojaHistorial().appendRow([
-      fechaVisita, horaVisita, nombre,
-      servicioNorm,
-      addOnsNorm.join(', '),
-      prodNorm.join(', '),
-      monto,
-      estadoPago
-    ]);
-    console.log(`[VISITAS] Registrado en Historial_Visitas: ${nombre} — $${monto} — ${estadoPago}`);
+    // Ejecutar escrituras
+    try {
+      if (filaCitaOriginal > -1) {
+        sheetCitas.getRange(filaCitaOriginal, 6).setValue('confirmada');
+        citaActualizada = true;
+      }
 
-    if (match.encontrado) _actualizarUltimaCita(nombre, fechaVisita, match.fila);
+      _getHojaHistorial().appendRow([
+        fechaVisita, horaVisita, nombre,
+        servicioNorm,
+        addOnsNorm.join(', '),
+        prodNorm.join(', '),
+        monto,
+        estadoPago
+      ]);
+      console.log(`[VISITAS] Registrado en Historial_Visitas: ${nombre} — $${monto} — ${estadoPago}`);
 
+      if (match.encontrado) _actualizarUltimaCita(nombre, fechaVisita, match.fila);
+
+    } catch (sheetErr) {
+      console.error(`[VISITAS] Error escribiendo historial/citas: ${sheetErr.message}`);
+      return {ok: false, mensaje: `❌ <b>Error crítico guardando la visita:</b> ${escapeHtml(sheetErr.message)}.\nEl inventario no fue descontado. Por favor, revisa manualmente.`};
+    }
+
+    // Finalmente, descontar inventario. Ya está prevalidado, no debería fallar por stock.
     let alertasInventario = '';
     prodNorm.forEach(p => {
       try {
         const res = descontarProducto(p, 1);
-        if (res.alerta) alertasInventario += res.mensajeAlerta;
+        if (res.ok && res.alerta) alertasInventario += res.mensajeAlerta;
       } catch(e) {
-        console.warn(`[VISITAS] No pude descontar inventario para ${p}: ${e.message}`);
+        console.error(`[VISITAS] Error descontando ${p} luego de prevalidar: ${e.message}`);
       }
     });
 

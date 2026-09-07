@@ -60,7 +60,8 @@ const doPost = (e) => {
 
     // 4. Enrutador de Acciones
     const fechaActual = new Date();
-    // Acciones que aún mandan su propio mensaje internamente (pendientes de migrar)
+    // [LEGACY TEMPORAL] Estas acciones mantienen compatibilidad temporal y aún pueden enviar mensajes directos a Telegram.
+    // PROHIBIDO: No agregar nuevas acciones aquí. Las nuevas acciones deben adherirse al contrato centralizado de retorno {ok, mensaje}.
     const ACCIONES_LEGACY = new Set([
       'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES'
     ]);

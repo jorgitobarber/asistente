@@ -44,6 +44,44 @@ const _buscarFilaProducto = (nombreCanónico, data) => {
   return -1;
 };
 
+// ─── Prevalidación de Stock (usado desde Citas.gs) ─────────────────────────────
+
+/**
+ * Valida si hay stock suficiente para una lista de productos.
+ * No realiza descuentos.
+ * @returns { ok, mensajeError }
+ */
+const prevalidarStockBatch = (productos) => {
+  try {
+    if (!productos || productos.length === 0) return { ok: true, mensajeError: '' };
+
+    const sheet = _getHojaInventario();
+    const data  = sheet.getDataRange().getValues();
+    
+    // Contamos cuántas unidades se piden de cada producto
+    const requeridos = {};
+    for (const p of productos) {
+      const canon = _normalizarProductoInventario(p);
+      if (canon) requeridos[canon] = (requeridos[canon] || 0) + 1;
+    }
+
+    for (const [canon, req] of Object.entries(requeridos)) {
+      const fila = _buscarFilaProducto(canon, data);
+      if (fila < 0) return { ok: false, mensajeError: `⚠️ El producto "${escapeHtml(canon)}" no existe en inventario.` };
+      
+      const stockActual = parseInt(data[fila][1]) || 0;
+      if (stockActual < req) {
+        return { ok: false, mensajeError: `⚠️ Stock insuficiente para ${escapeHtml(canon)}. Pides ${req} pero solo hay ${stockActual}.` };
+      }
+    }
+
+    return { ok: true, mensajeError: '' };
+  } catch (e) {
+    console.error(`[INVENTARIO] Error en prevalidarStockBatch: ${e.message}`);
+    return { ok: false, mensajeError: '❌ Error interno al verificar stock.' };
+  }
+};
+
 // ─── Descontar producto (usado desde confirmarVisita y venta directa) ──────────
 
 /**
@@ -69,7 +107,14 @@ const descontarProducto = (nombreProducto, cantidad) => {
 
     const stockActual = parseInt(data[fila][1]) || 0;
     const stockMinimo = parseInt(data[fila][2]) || 2;
-    const nuevoStock  = Math.max(0, stockActual - (parseInt(cantidad) || 1));
+    const cant        = parseInt(cantidad) || 1;
+    
+    if (stockActual < cant) {
+      console.warn(`[INVENTARIO] Stock insuficiente para descontar ${cant} de ${canon}`);
+      return { ok: false, alerta: false, mensajeAlerta: '' };
+    }
+    
+    const nuevoStock  = stockActual - cant;
     const unidad      = data[fila][5] || 'unidad';
 
     sheet.getRange(fila + 1, 2).setValue(nuevoStock);
@@ -163,7 +208,12 @@ const registrarVentaProductoDirecta = (accion, chatId) => {
     const total    = precio * cantidad;
 
     // Descontar inventario
-    const { mensajeAlerta } = descontarProducto(canon, cantidad);
+    const res = descontarProducto(canon, cantidad);
+    if (!res.ok) {
+      sendTelegramMessage(chatId, `⚠️ Stock insuficiente. No se puede vender ${cantidad} unidades de ${escapeHtml(canon)}.`);
+      return;
+    }
+    const mensajeAlerta = res.mensajeAlerta;
 
     // Registrar como ingreso
     const ss    = SpreadsheetApp.openById(getSheetId());
