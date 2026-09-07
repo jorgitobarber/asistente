@@ -15,6 +15,18 @@ const getTelegramToken = () => {
 const getTelegramApiUrl = () => `https://api.telegram.org/bot${getTelegramToken()}`;
 
 /**
+ * Escapa caracteres especiales de HTML requeridos por Telegram (<, >, &).
+ * Útil para limpiar nombres de clientes o descripciones antes de enviarlos.
+ */
+const escapeHtml = (text) => {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+};
+
+/**
  * Envía un mensaje de texto al chat de Jorge en Telegram.
  * 
  * @param {string|number} chatId - ID del chat de Telegram.

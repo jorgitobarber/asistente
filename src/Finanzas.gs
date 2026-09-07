@@ -3,11 +3,7 @@
  * Se encarga de insertar los gastos, ingresos y clientes del día.
  */
 
-const getPreciosBarberia = () => {
-  const preciosStr = PropertiesService.getScriptProperties().getProperty('PRECIOS_BARBERIA');
-  if (!preciosStr) throw new Error("Falta configurar PRECIOS_BARBERIA (JSON) en las propiedades del script.");
-  return JSON.parse(preciosStr);
-};
+
 
 const getSheetId = () => {
   const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
@@ -31,18 +27,23 @@ const registrarFinanzas = (accion, fechaActual) => {
     const fecha = fechaActual.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
     const hora = fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
 
+    let msg = "";
+
     if (accion.subtipo === "GASTO") {
       const sheet = _getOrCreateSheet(ss, "Gastos", ["fecha", "hora", "descripción", "monto"]);
       sheet.appendRow([fecha, hora, accion.descripcion, accion.monto]);
       console.log(`[FINANZAS] Gasto registrado: $${accion.monto} - ${accion.descripcion}`);
+      msg = `💸 Gasto registrado:\n$${accion.monto.toLocaleString('es-CL')} — ${escapeHtml(accion.descripcion)}`;
     } 
     else if (accion.subtipo === "INGRESO") {
       const sheet = _getOrCreateSheet(ss, "Ingresos", ["fecha", "hora", "descripción", "monto"]);
       sheet.appendRow([fecha, hora, accion.descripcion, accion.monto]);
       console.log(`[FINANZAS] Ingreso registrado: $${accion.monto} - ${accion.descripcion}`);
+      msg = `💰 Ingreso registrado:\n$${accion.monto.toLocaleString('es-CL')} — ${escapeHtml(accion.descripcion)}`;
     }
+    return { ok: true, mensaje: msg };
   } catch (error) {
     console.error(`[FINANZAS] Error en registrarFinanzas: ${error.message}`);
-    throw error;
+    return { ok: false, mensaje: `❌ Error al registrar finanzas: ${escapeHtml(error.message)}` };
   }
 };

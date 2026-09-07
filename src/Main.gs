@@ -62,8 +62,7 @@ const doPost = (e) => {
     const fechaActual = new Date();
     // Acciones que aún mandan su propio mensaje internamente (pendientes de migrar)
     const ACCIONES_LEGACY = new Set([
-      'AGENDAR_CITA','CONFIRMAR_VISITA','INASISTENCIA','REAGENDAR_CITA',
-      'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES', 'MARCAR_PAGADO'
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES'
     ]);
     
     let accionLegacyEjecutada = false;

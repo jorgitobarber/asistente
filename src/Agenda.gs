@@ -179,15 +179,20 @@ const procesarAgenda = (accion) => {
     const calendar = getCalendarTarget(accion.calendario);
     if (!calendar) throw new Error(`No se encontró calendario: ${accion.calendario}`);
 
+    let msg = "";
     if (accion.subtipo === "MODIFICAR") {
       modificarEvento(accion, calendar);
+      msg = `✅ Evento modificado en tu calendario (${escapeHtml(accion.calendario)})`;
     } else if (accion.subtipo === "ELIMINAR") {
       eliminarEvento(accion, calendar);
+      msg = `🗑️ Evento eliminado de tu calendario (${escapeHtml(accion.calendario)})`;
     } else {
       crearEvento(accion, calendar);
+      msg = `📅 Evento agregado a tu calendario (${escapeHtml(accion.calendario)}):\n<b>${escapeHtml(accion.evento)}</b>`;
     }
+    return { ok: true, mensaje: msg };
   } catch (error) {
     console.error(`[AGENDA] Error en procesarAgenda: ${error.message}`);
-    throw error;
+    return { ok: false, mensaje: `❌ Error de agenda: ${escapeHtml(error.message)}` };
   }
 };
