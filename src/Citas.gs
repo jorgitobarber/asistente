@@ -139,6 +139,18 @@ const agendarCita = (accion, chatId) => {
       return {ok: false, mensaje: `⚠️ Ojo jefe, ya existe una cita agendada para <b>${escapeHtml(nombreFinal)}</b> el ${_formatearFechaLegible(fecha)}. No la crearé de nuevo para evitar duplicados.`};
     }
 
+    if (hora) {
+      const existeCitaHora = dataCitas.slice(1).some(r => 
+        _normalizarFechaSheet(r[0]) === fecha && 
+        r[1] === hora &&
+        r[5] === 'agendada'
+      );
+      
+      if (existeCitaHora) {
+        return {ok: false, mensaje: `⚠️ Ojo jefe, ya tienes otra cita agendada a las ${hora} el ${_formatearFechaLegible(fecha)}. No he agendado esta para evitar choques.`};
+      }
+    }
+
     const addOnStr     = addOnsNorm.length  ? ` + ${addOnsNorm.join(', ')}` : '';
     const monto        = _calcularMonto(servicioNorm, addOnsNorm, []);
     const esNuevo      = !match.encontrado ? '\n👤 <i>Cliente nuevo</i> — lo agregué a tu lista.' : '';
@@ -160,7 +172,7 @@ const agendarCita = (accion, chatId) => {
         evento: titulo,
         fecha_estimada: fecha,
         hora_estimada: hora || '09:00',
-        ignorar_choques: true
+        ignorar_choques: accion.ignorar_choques || false
       };
       eventId = crearEvento(accionCalendar, calBarberia) || '';
       console.log(`[VISITAS] Evento creado en Calendar: ${titulo} (ID: ${eventId})`);
