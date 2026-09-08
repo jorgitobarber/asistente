@@ -117,6 +117,7 @@ Devuelve SOLO JSON válido:
 JSON REGLAS: Sin comas finales, sin doble comillas en valores, sin saltos de linea en strings.
 BARBERIA:
 - "agendó Juan mañana a las 5pm" -> AGENDAR_CITA
+- "ayer a las 3pm agendó Luis un corte", "el martes agendó Matias" -> AGENDAR_CITA con la fecha pasada inferida (YYYY-MM-DD). La IA extrae la fecha libremente.
 - "ya vino Juan" -> CONFIRMAR_VISITA
 - "Juan no vino" -> INASISTENCIA
 - "Juan reagendó viernes 4pm" -> REAGENDAR_CITA

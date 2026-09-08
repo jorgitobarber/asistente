@@ -53,6 +53,13 @@ const doPost = (e) => {
 
     console.log(`[MAIN] Procesando nuevo mensaje de ${chatId}: "${userText.substring(0, 50)}..."`);
 
+    // Limpieza temporal
+    if (userText === "LIMPIAR_DATOS_AHORA") {
+      const resLimpieza = LIMPIAR_DATOS();
+      sendTelegramMessage(chatId, resLimpieza);
+      return ContentService.createTextOutput("OK");
+    }
+
     // 3. Procesamiento NLP con Gemini
     const geminiResult = parseMessageWithGemini(userText);
     const acciones = geminiResult.acciones || [];
