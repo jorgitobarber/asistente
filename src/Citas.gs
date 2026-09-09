@@ -328,17 +328,38 @@ const marcarVisitaPagada = (accion, chatId) => {
     let montoEncontrado = 0;
     let fechaEncontrada = '';
 
+    // 1) Match EXACTO primero
     for (let i = data.length - 1; i >= 1; i--) {
       const nombreFila = _normalizar((data[i][2] || '').toString());
       const estadoPago = ((data[i][7] || '') + '').toUpperCase() || 'PAGADO';
+      if (nombreFila === busqueda && estadoPago === 'PENDIENTE') {
+        filaEncontrada  = i + 1;
+        montoEncontrado = parseFloat(data[i][6]) || 0;
+        fechaEncontrada = _normalizarFechaSheet(data[i][0]);
+        break;
+      }
+    }
 
-      if (nombreFila === busqueda || nombreFila.includes(busqueda) || busqueda.includes(nombreFila)) {
-        if (estadoPago === 'PENDIENTE') {
-          filaEncontrada  = i + 1;
-          montoEncontrado = parseFloat(data[i][6]) || 0;
-          fechaEncontrada = _normalizarFechaSheet(data[i][0]);
-          break;
+    // 2) Si no hubo exacto, match parcial SOLO si es inequívoco
+    if (filaEncontrada === -1) {
+      const nombresDistintos = new Set();
+      let candidato = null;
+      for (let i = data.length - 1; i >= 1; i--) {
+        const nombreFila = _normalizar((data[i][2] || '').toString());
+        const estadoPago = ((data[i][7] || '') + '').toUpperCase() || 'PAGADO';
+        if (estadoPago === 'PENDIENTE' && (nombreFila.includes(busqueda) || busqueda.includes(nombreFila))) {
+          nombresDistintos.add(nombreFila);
+          if (!candidato) {
+            candidato = { fila: i + 1, monto: parseFloat(data[i][6]) || 0, fecha: _normalizarFechaSheet(data[i][0]) };
+          }
         }
+      }
+      if (nombresDistintos.size === 1 && candidato) {
+        filaEncontrada  = candidato.fila;
+        montoEncontrado = candidato.monto;
+        fechaEncontrada = candidato.fecha;
+      } else if (nombresDistintos.size > 1) {
+        return {ok: false, mensaje: `⚠️ Hay varios pagos pendientes con nombres parecidos a "<b>${escapeHtml(accion.nombre_cliente)}</b>". Dime el nombre completo y exacto.`};
       }
     }
 
@@ -437,83 +458,119 @@ const reagendarCita = (accion, chatId) => {
 
     const sheetCitas = _getHojaCitas();
     const dataCitas  = sheetCitas.getDataRange().getValues();
-    let actualizado  = false;
 
+    // BUG 2 FIX: Recoger TODAS las citas 'agendada' y elegir la más próxima,
+    // no simplemente la primera fila que calce en la hoja.
+    const candidatos = [];
     for (let i = 1; i < dataCitas.length; i++) {
       if (_normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
-
-        const viejaFecha    = dataCitas[i][0];
-        const viejaHora     = dataCitas[i][1];
-        const viejoServicio = dataCitas[i][3];
-        const viejosAddOns  = dataCitas[i][4];
-        const viejoEventId  = dataCitas[i][8];
-
-        sheetCitas.getRange(i + 1, 6).setValue('reagendada');
-        sheetCitas.getRange(i + 1, 7).setValue(accion.nueva_fecha || '');
-        sheetCitas.getRange(i + 1, 8).setValue(accion.nueva_hora  || '');
-
-        let nuevoEventId = '';
-        try {
-          const calBarberia = CalendarApp.getCalendarById(
-            PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
-          );
-          if (calBarberia) {
-            if (viejoEventId) {
-              try {
-                const evViejo = calBarberia.getEventById(viejoEventId);
-                if (evViejo) {
-                  evViejo.deleteEvent();
-                  console.log(`[VISITAS] Evento Calendar viejo borrado por ID: ${viejoEventId}`);
-                }
-              } catch(e) {
-                console.warn(`[VISITAS] No se pudo borrar evento viejo por ID: ${e.message}`);
-              }
-            } else if (viejaFecha && viejaHora) {
-              const fechaVieja = _parseDateTime(viejaFecha, viejaHora);
-              const eventos = calBarberia.getEvents(
-                new Date(fechaVieja.getTime() - 5 * 60000),
-                new Date(fechaVieja.getTime() + 5 * 60000)
-              );
-              eventos.forEach(ev => {
-                if (_normalizar(ev.getTitle()).includes(_normalizar(nombre))) {
-                  ev.deleteEvent();
-                  console.log(`[VISITAS] Evento Calendar borrado (fallback): ${ev.getTitle()}`);
-                }
-              });
-            }
-
-            const addOnStr = viejosAddOns ? ` + ${viejosAddOns}` : '';
-            nuevoEventId = crearEvento({
-              evento: `✂️ ${nombre} — ${viejoServicio}${addOnStr}`,
-              fecha_estimada: accion.nueva_fecha,
-              hora_estimada:  accion.nueva_hora || '09:00',
-              ignorar_choques: true
-            }, calBarberia) || '';
-          }
-        } catch (calErr) {
-          console.warn(`[VISITAS] No pude actualizar Calendar al reagendar: ${calErr.message}`);
-          return {ok: false, mensaje: `❌ <b>Error reagendando en Calendar:</b> ${escapeHtml(calErr.message)}.\nCita no modificada en Sheets.`};
-        }
-
-        sheetCitas.appendRow([
-          accion.nueva_fecha, accion.nueva_hora, nombre,
-          viejoServicio,
-          viejosAddOns,
-          'agendada',
-          '', '', nuevoEventId
-        ]);
-
-        actualizado = true;
-        break;
+        const fechaStr  = _normalizarFechaSheet(dataCitas[i][0]);
+        const horaStr   = dataCitas[i][1] || '00:00';
+        const fechaHora = new Date(`${fechaStr}T${horaStr}:00`);
+        candidatos.push({
+          fila: i,
+          fechaHora: isNaN(fechaHora.getTime()) ? new Date(8640000000000000) : fechaHora
+        });
       }
     }
+    candidatos.sort((a, b) => a.fechaHora - b.fechaHora);
+    if (candidatos.length > 1) {
+      console.warn(`[VISITAS] ${nombre} tenía ${candidatos.length} citas agendadas; se reagenda la más próxima.`);
+    }
+
+    let actualizado   = false;
+    let avisoChoque   = '';
+    let viejoServicio = '';
+    let viejosAddOns  = '';
+
+    if (candidatos.length > 0) {
+      const i = candidatos[0].fila;
+      const viejaFecha   = dataCitas[i][0];
+      const viejaHora    = dataCitas[i][1];
+      const viejoEventId = dataCitas[i][8];
+      viejoServicio      = dataCitas[i][3];
+      viejosAddOns       = dataCitas[i][4];
+
+      sheetCitas.getRange(i + 1, 6).setValue('reagendada');
+      sheetCitas.getRange(i + 1, 7).setValue(accion.nueva_fecha || '');
+      sheetCitas.getRange(i + 1, 8).setValue(accion.nueva_hora  || '');
+
+      // Borrar evento viejo del Calendar
+      try {
+        const calBarberia = CalendarApp.getCalendarById(
+          PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+        );
+        if (calBarberia) {
+          if (viejoEventId) {
+            try {
+              const evViejo = calBarberia.getEventById(viejoEventId);
+              if (evViejo) {
+                evViejo.deleteEvent();
+                console.log(`[VISITAS] Evento Calendar viejo borrado por ID: ${viejoEventId}`);
+              }
+            } catch (e) {
+              console.warn(`[VISITAS] No se pudo borrar evento viejo por ID: ${e.message}`);
+            }
+          } else if (viejaFecha && viejaHora) {
+            const fechaVieja = _parseDateTime(viejaFecha, viejaHora);
+            const eventos = calBarberia.getEvents(
+              new Date(fechaVieja.getTime() - 5 * 60000),
+              new Date(fechaVieja.getTime() + 5 * 60000)
+            );
+            eventos.forEach(ev => {
+              if (_normalizar(ev.getTitle()).includes(_normalizar(nombre))) {
+                ev.deleteEvent();
+                console.log(`[VISITAS] Evento Calendar borrado (fallback): ${ev.getTitle()}`);
+              }
+            });
+          }
+        }
+      } catch (calErr) {
+        console.warn(`[VISITAS] No pude borrar el evento viejo del Calendar: ${calErr.message}`);
+      }
+
+      actualizado = true;
+    } else {
+      console.log(`[VISITAS] ${nombre} no tenía cita 'agendada' previa; se crea directamente la nueva.`);
+    }
+
+    // Crear evento nuevo en Calendar (siempre, con o sin cita previa)
+    // BUG 1 FIX: Ya NO se ignoran los choques — si hay choque, crearEvento() lanza
+    // un Error que capturamos y propagamos como aviso, igual que agendarCita.
+    let nuevoEventId = '';
+    try {
+      const calBarberia = CalendarApp.getCalendarById(
+        PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+      );
+      if (calBarberia) {
+        const addOnStr = viejosAddOns ? ` + ${viejosAddOns}` : '';
+        nuevoEventId = crearEvento({
+          evento: `✂️ ${nombre}${viejoServicio ? ' — ' + viejoServicio + addOnStr : ''}`,
+          fecha_estimada: accion.nueva_fecha,
+          hora_estimada:  accion.nueva_hora || '09:00'
+          // ignorar_choques no se pasa → mismo comportamiento que agendarCita
+        }, calBarberia) || '';
+      }
+    } catch (choqueErr) {
+      avisoChoque = `\n\n${choqueErr.message}`;
+      console.warn(`[VISITAS] Choque al reagendar: ${choqueErr.message}`);
+    }
+
+    // BUG 3 FIX: appendRow se ejecuta SIEMPRE, fuera del if de candidatos,
+    // antes estaba dentro del for/if y nunca corría si no había cita previa.
+    sheetCitas.appendRow([
+      accion.nueva_fecha, accion.nueva_hora, nombre,
+      viejoServicio, viejosAddOns,
+      'agendada',
+      '', '', nuevoEventId
+    ]);
 
     const fechaLegible = _formatearFechaLegible(accion.nueva_fecha);
     console.log(`[VISITAS] Reagendado: ${nombre} → ${accion.nueva_fecha} ${accion.nueva_hora}`);
     return {ok: true, mensaje: actualizado
-      ? `✅ Reagendado jefe!\n\n👤 <b>${escapeHtml(nombre)}</b>\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n📆 Actualicé tu calendario también.`
-      : `📋 Reagendado.\n\n👤 <b>${escapeHtml(nombre)}</b>\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n\n(No tenía cita previa registrada, creé la nueva igual.)`};
+      ? `✅ Reagendado jefe!\n\n👤 <b>${escapeHtml(nombre)}</b>\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n📆 Actualicé tu calendario también.${avisoChoque}`
+      : `📋 Reagendado.\n\n👤 <b>${escapeHtml(nombre)}</b>\n📅 ${fechaLegible} a las ${accion.nueva_hora}\n\n(No tenía cita previa registrada, creé la nueva igual.)${avisoChoque}`};
 
   } catch (error) {
     console.error(`[VISITAS] Error en reagendarCita: ${error.message}`);
