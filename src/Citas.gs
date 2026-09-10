@@ -403,13 +403,13 @@ const registrarInasistencia = (accion, chatId) => {
       return {ok: false, mensaje: `⚠️ Hay varios con ese nombre. ¿Cuál no vino? Dime el nombre completo.`};
     }
 
-    const hoy       = _hoyChile();
-    const sheetCitas = _getHojaCitas();
-    const dataCitas  = sheetCitas.getDataRange().getValues();
-    let actualizado  = false;
+    const fechaVisita = accion.fecha || _hoyChile(); // Soporta "Juan no vino ayer" con fecha inferida
+    const sheetCitas  = _getHojaCitas();
+    const dataCitas   = sheetCitas.getDataRange().getValues();
+    let actualizado   = false;
 
     for (let i = 1; i < dataCitas.length; i++) {
-      if (_normalizarFechaSheet(dataCitas[i][0]) === hoy &&
+      if (_normalizarFechaSheet(dataCitas[i][0]) === fechaVisita &&
           _normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
           dataCitas[i][5] === 'agendada') {
         const eventId = dataCitas[i][8];
@@ -461,18 +461,29 @@ const reagendarCita = (accion, chatId) => {
 
     // BUG 2 FIX: Recoger TODAS las citas 'agendada' y elegir la más próxima,
     // no simplemente la primera fila que calce en la hoja.
+    // Si Gemini proveyó fecha_original, filtramos candidatos por esa fecha
+    // Ej: "reagendá el corte de Tomás del jueves a las 5pm para hoy"
+    const fechaOriginal = accion.fecha_original || null;
+    const horaOriginal  = accion.hora_original  || null;
+
     const candidatos = [];
     for (let i = 1; i < dataCitas.length; i++) {
-      if (_normalizar(dataCitas[i][2]) === _normalizar(nombre) &&
-          dataCitas[i][5] === 'agendada') {
-        const fechaStr  = _normalizarFechaSheet(dataCitas[i][0]);
-        const horaStr   = dataCitas[i][1] || '00:00';
-        const fechaHora = new Date(`${fechaStr}T${horaStr}:00`);
-        candidatos.push({
-          fila: i,
-          fechaHora: isNaN(fechaHora.getTime()) ? new Date(8640000000000000) : fechaHora
-        });
-      }
+      if (_normalizar(dataCitas[i][2]) !== _normalizar(nombre)) continue;
+      if (dataCitas[i][5] !== 'agendada') continue;
+      const fechaStr = _normalizarFechaSheet(dataCitas[i][0]);
+
+      // Filtro por fecha_original si fue especificada
+      if (fechaOriginal && fechaStr !== fechaOriginal) continue;
+
+      // Filtro adicional por hora_original si fue especificada
+      if (horaOriginal && dataCitas[i][1] && dataCitas[i][1] !== horaOriginal) continue;
+
+      const horaStr   = dataCitas[i][1] || '00:00';
+      const fechaHora = new Date(`${fechaStr}T${horaStr}:00`);
+      candidatos.push({
+        fila: i,
+        fechaHora: isNaN(fechaHora.getTime()) ? new Date(8640000000000000) : fechaHora
+      });
     }
     candidatos.sort((a, b) => a.fechaHora - b.fechaHora);
     if (candidatos.length > 1) {
@@ -575,5 +586,90 @@ const reagendarCita = (accion, chatId) => {
   } catch (error) {
     console.error(`[VISITAS] Error en reagendarCita: ${error.message}`);
     return {ok: false, mensaje: '❌ No pude reagendar la cita.'};
+  }
+};
+
+// ─── Cancelar cita ────────────────────────────────────────────────────────────
+
+/**
+ * Cancela una cita agendada: la marca como 'cancelada' y borra el evento del Calendar.
+ * Acepta fecha opcional (si hay varias citas del mismo cliente, cancela la de esa fecha).
+ */
+const cancelarCita = (accion, chatId) => {
+  try {
+    const match = _buscarCliente(accion.nombre_cliente);
+    if (match.ambiguo) {
+      return { ok: false, mensaje: `⚠️ Hay varios clientes con ese nombre. ¿Cuál quieres cancelar? Dime el nombre completo.` };
+    }
+
+    const nombre         = match.encontrado ? match.nombre : accion.nombre_cliente;
+    const sheetCitas     = _getHojaCitas();
+    const dataCitas      = sheetCitas.getDataRange().getValues();
+    const fechaBusqueda  = accion.fecha || null; // null = busca cualquier cita agendada futura
+
+    let filaCita  = -1;
+    let eventId   = '';
+    let fechaCita = '';
+    let horaCita  = '';
+    let servicioC = '';
+
+    // Buscar la cita agendada (prioriza la de la fecha indicada, si no, la más próxima)
+    const candidatos = [];
+    for (let i = 1; i < dataCitas.length; i++) {
+      if (_normalizar(dataCitas[i][2]) !== _normalizar(nombre)) continue;
+      if (dataCitas[i][5] !== 'agendada') continue;
+      const fechaFila = _normalizarFechaSheet(dataCitas[i][0]);
+      if (fechaBusqueda && fechaFila !== fechaBusqueda) continue;
+      const horaFila  = dataCitas[i][1] || '00:00';
+      const fechaHora = new Date(`${fechaFila}T${horaFila}:00`);
+      candidatos.push({ fila: i, fechaHora: isNaN(fechaHora.getTime()) ? new Date(0) : fechaHora });
+    }
+
+    candidatos.sort((a, b) => a.fechaHora - b.fechaHora);
+
+    if (candidatos.length === 0) {
+      return { ok: false, mensaje: `⚠️ No encontré ninguna cita agendada para <b>${escapeHtml(nombre)}</b>${fechaBusqueda ? ' en esa fecha' : ''}. ¿Ya fue cancelada o confirmada?` };
+    }
+
+    const elegida = candidatos[0];
+    const i       = elegida.fila;
+    filaCita      = i + 1;
+    eventId       = dataCitas[i][8];
+    fechaCita     = _normalizarFechaSheet(dataCitas[i][0]);
+    horaCita      = dataCitas[i][1];
+    servicioC     = dataCitas[i][3];
+
+    // Marcar como cancelada en Sheets
+    sheetCitas.getRange(filaCita, 6).setValue('cancelada');
+
+    // Borrar evento de Calendar
+    try {
+      const calBarberia = CalendarApp.getCalendarById(
+        PropertiesService.getScriptProperties().getProperty('CALENDAR_BARBERIA_ID')
+      );
+      if (calBarberia && eventId) {
+        const ev = calBarberia.getEventById(eventId);
+        if (ev) {
+          ev.deleteEvent();
+          console.log(`[VISITAS] Evento Calendar borrado por cancelación: ${eventId}`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[VISITAS] No se pudo borrar el evento de Calendar: ${e.message}`);
+    }
+
+    console.log(`[VISITAS] Cita cancelada: ${nombre} — ${fechaCita} ${horaCita}`);
+    return {
+      ok: true,
+      mensaje: `❌ Cita cancelada:\n\n` +
+        `👤 <b>${escapeHtml(nombre)}</b>\n` +
+        `📅 ${_formatearFechaLegible(fechaCita)}${horaCita ? ' a las ' + horaCita : ''}\n` +
+        `✂️ ${escapeHtml(servicioC || '')}\n` +
+        `📆 Evento eliminado de tu calendario.`
+    };
+
+  } catch (error) {
+    console.error(`[VISITAS] Error en cancelarCita: ${error.message}`);
+    return { ok: false, mensaje: '❌ No pude cancelar la cita. Intenta de nuevo.' };
   }
 };

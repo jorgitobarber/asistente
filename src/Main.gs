@@ -70,7 +70,7 @@ const doPost = (e) => {
     // [LEGACY TEMPORAL] Estas acciones mantienen compatibilidad temporal y aún pueden enviar mensajes directos a Telegram.
     // PROHIBIDO: No agregar nuevas acciones aquí. Las nuevas acciones deben adherirse al contrato centralizado de retorno {ok, mensaje}.
     const ACCIONES_LEGACY = new Set([
-      'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES'
+      'VENTA_PRODUCTO','REABASTECER','REPORTE','CLIENTES','REPORTE_GASTOS'
     ]);
     
     let accionLegacyEjecutada = false;
@@ -115,6 +115,12 @@ const doPost = (e) => {
         res = reabastecer(accion, chatId);
       } else if (accion.tipo === "RECORDATORIO") {
         res = agregarRecordatorio(accion, chatId);
+      } else if (accion.tipo === "CANCELAR_CITA") {
+        res = cancelarCita(accion, chatId);
+      } else if (accion.tipo === "ANULAR_ULTIMO_GASTO") {
+        res = anularUltimoGasto();
+      } else if (accion.tipo === "REPORTE_GASTOS") {
+        res = generarReporteGastos(accion, chatId);
       } else {
         console.warn(`[MAIN] Tipo de acción desconocida: ${accion.tipo}`);
         res = { ok: false, mensaje: `⚠️ Acción desconocida: ${accion.tipo}` };

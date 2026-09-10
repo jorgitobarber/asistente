@@ -253,7 +253,7 @@ const marcarClienteContactado = (nombreCliente) => {
     const hoy = new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
 
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === nombreCliente) {
+      if (_normalizar((data[i][0] || '').toString()) === _normalizar(nombreCliente)) {
         sheet.getRange(i + 1, 6).setValue(hoy);
         console.log(`[CLIENTES] ${nombreCliente} marcado como contactado en ${hoy}`);
         return true;

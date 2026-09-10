@@ -263,68 +263,8 @@ const enviarCierreDiario = () => {
 };
 
 
-const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
-  let ingresos = 0, gastos = 0, clientes = 0;
-
-  // Usar strings YYYY-MM-DD para comparar sin problemas de timezone
-  const startStr = Utilities.formatDate(dateStart, 'America/Santiago', 'yyyy-MM-dd');
-  const endStr   = Utilities.formatDate(dateEnd,   'America/Santiago', 'yyyy-MM-dd');
-
-  const normFecha = (v) => {
-    if (!v) return '';
-    if (v instanceof Date) return Utilities.formatDate(v, 'America/Santiago', 'yyyy-MM-dd');
-    const str = v.toString().trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    if (str.includes('/')) {
-      const p = str.split(' ')[0].split('/');
-      if (p.length === 3 && parseInt(p[2]) > 31) {
-        return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-      }
-    }
-    const d = new Date(str);
-    return !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd') : '';
-  };
-
-  const enRango = (v) => { const f = normFecha(v); return f >= startStr && f <= endStr; };
-
-  const processSheet = (name, colMonto, colCliente, isHistorial) => {
-    const sheet = ss.getSheetByName(name);
-    if (!sheet) return;
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (!enRango(data[i][0])) continue;
-      
-      // Si es historial de visitas, no sumar a caja los que están PENDIENTES
-      if (isHistorial) {
-        const estadoPago = ((data[i][7] || '') + '').toUpperCase();
-        if (estadoPago === 'PENDIENTE') {
-          // Sí sumamos el cliente, pero NO la plata
-          if (colCliente) clientes++;
-          continue; 
-        }
-      }
-
-      ingresos += parseFloat(data[i][colMonto]) || 0;
-      if (colCliente) clientes++;
-    }
-  };
-
-  processSheet('Ingresos', 3, false, false);           // col 3 = monto
-  processSheet('Historial_Visitas', 6, true, true);    // col 6 = monto, col 7 = estado_pago
-
-  // Gastos (restan al balance, se procesan aparte)
-  const shGastos = ss.getSheetByName('Gastos');
-  if (shGastos) {
-    const dataG = shGastos.getDataRange().getValues();
-    for (let i = 1; i < dataG.length; i++) {
-      if (!enRango(dataG[i][0])) continue;
-      gastos += parseFloat(dataG[i][3]) || 0;
-    }
-  }
-
-  console.log(`[FINANZAS] Rango ${startStr} → ${endStr}: ingresos=$${ingresos}, gastos=$${gastos}, clientes=${clientes}`);
-  return { ingresos, gastos, clientes, balance: ingresos - gastos };
-};
+// _calcularFinanzasRango fue movida a Finanzas.gs (centralización de lógica financiera).
+// Sigue disponible aquí porque GAS comparte scope entre todos los archivos .gs del proyecto.
 
 
 const generarReporteBajoDemanda = (accion, chatId) => {

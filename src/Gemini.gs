@@ -10,7 +10,7 @@ const getGeminiApiKey = () => {
   return key;
 };
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 /**
  * Llama a la API de Gemini con reintentos automáticos ante errores 503/429.
@@ -97,8 +97,10 @@ SERVICIOS (normaliza):
 Devuelve SOLO JSON válido:
 {
   "acciones": [
-    { "tipo": "FINANZAS", "subtipo": "GASTO|INGRESO", "monto": 0, "descripcion": "string" },
-    { "tipo": "REPORTE", "subtipo": "FINANZAS", "periodo": "DIA|SEMANA|MES", "fecha_inicio": "YYYY-MM-DD", "fecha_fin": "YYYY-MM-DD" },
+    { "tipo": "FINANZAS", "subtipo": "GASTO", "categoria": "Insumos|Alimentación|Transporte|Servicios|Educación|Equipamiento|Personal|Otro", "monto": 0, "descripcion": "descripción normalizada y concisa del gasto (ej: 'Bebida energética (Monster)', 'Navajas de afeitar', 'Uber')" },
+    { "tipo": "FINANZAS", "subtipo": "INGRESO", "monto": 0, "descripcion": "string" },
+    { "tipo": "ANULAR_ULTIMO_GASTO" },
+    { "tipo": "REPORTE_GASTOS", "periodo": "DIA|SEMANA|MES" },
     { "tipo": "REPORTE", "subtipo": "AGENDA", "periodo": "HOY|MANANA|SEMANA" },
     { "tipo": "TODO", "subtipo": "AGREGAR|COMPLETAR|ELIMINAR|LISTAR", "categoria": "Personal|Universidad|Barberia", "tarea": "string", "periodo": "HOY|MANANA|SEMANA|TODAS" },
     { "tipo": "AGENDA", "subtipo": "CREAR|MODIFICAR|ELIMINAR", "calendario": "BARBERIA|UNIVERSIDAD|COMPROMISOS", "evento": "string", "fecha_estimada": "YYYY-MM-DD", "hora_estimada": "HH:MM opcional", "fecha_original": "YYYY-MM-DD", "hora_original": "HH:MM opcional", "nuevo_evento": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM", "ignorar_choques": true },
@@ -107,8 +109,9 @@ Devuelve SOLO JSON válido:
     { "tipo": "AGENDAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "servicio": "${getServiciosGemini()}", "add_ons": ["${getAddOnsGemini()}"] },
     { "tipo": "CONFIRMAR_VISITA", "nombre_cliente": "string", "servicio": "${getServiciosGemini()}", "add_ons": ["${getAddOnsGemini()}"], "productos": ["${getProductosGemini()}"], "estado_pago": "PAGADO|PENDIENTE", "fecha": "YYYY-MM-DD opcional" },
     { "tipo": "MARCAR_PAGADO", "nombre_cliente": "string" },
-    { "tipo": "INASISTENCIA", "nombre_cliente": "string" },
-    { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
+    { "tipo": "INASISTENCIA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD opcional" },
+    { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "fecha_original": "YYYY-MM-DD opcional — fecha de la cita que se mueve", "hora_original": "HH:MM opcional", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
+    { "tipo": "CANCELAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD opcional" },
     { "tipo": "VENTA_PRODUCTO", "producto": "${getProductosGemini()}", "cantidad": 1, "nombre_cliente": "string opcional" },
     { "tipo": "REABASTECER", "producto": "${getProductosGemini()}", "cantidad": 1, "costo_total": 0 }
   ],
@@ -117,11 +120,24 @@ Devuelve SOLO JSON válido:
 JSON REGLAS: Sin comas finales, sin doble comillas en valores, sin saltos de linea en strings.
 BARBERIA:
 - "agendó Juan mañana a las 5pm" -> AGENDAR_CITA
-- "ayer a las 3pm agendó Luis un corte", "el martes agendó Matias" -> AGENDAR_CITA con la fecha pasada inferida (YYYY-MM-DD). La IA extrae la fecha libremente.
+- "ayer a las 3pm agendó Luis un corte", "el martes agendó Matias" -> AGENDAR_CITA con la fecha pasada inferida (YYYY-MM-DD).
 - "ya vino Juan" -> CONFIRMAR_VISITA
 - "Juan no vino" -> INASISTENCIA
-- "Juan reagendó viernes 4pm" -> REAGENDAR_CITA
+- "Juan no vino ayer" -> INASISTENCIA con fecha inferida
+- "Juan reagendó viernes 4pm" -> REAGENDAR_CITA (sin fecha_original, usa la más próxima)
+- "reagendá el corte de Tomás del jueves a las 5pm para hoy a las 5pm" -> REAGENDAR_CITA fecha_original:YYYY-MM-DD hora_original:17:00 nueva_fecha:YYYY-MM-DD nueva_hora:17:00
+- "cancelá la cita de Juan" -> CANCELAR_CITA nombre_cliente:Juan
+- "Juan canceló su turno del martes" -> CANCELAR_CITA nombre_cliente:Juan fecha:YYYY-MM-DD
 - "contactos hecho" -> CLIENTES/CONTACTOS_CONFIRMADO
+GASTOS (infiere categoría y normaliza descripción — sé conciso):
+- "gasté 3mil en monster" -> FINANZAS/GASTO Alimentación "Bebida energética (Monster)" 3000
+- "compré navajas pa la barba" -> FINANZAS/GASTO Insumos "Navajas de afeitar" monto
+- "pagué el uber" -> FINANZAS/GASTO Transporte "Uber" monto
+- "compré fotocopias" -> FINANZAS/GASTO Educación "Fotocopias" monto
+- "ese gasto estuvo mal" / "borra el último gasto" -> ANULAR_ULTIMO_GASTO
+- "reporte de gastos" / "cuánto gasté este mes" -> REPORTE_GASTOS MES
+- "cuánto gasté hoy/esta semana" -> REPORTE_GASTOS DIA/SEMANA
+CATEGORÍAS GASTO: Insumos=productos de trabajo; Alimentación=comida/bebidas; Transporte=uber/micro/bencina; Servicios=luz/agua/internet/arriendo; Educación=libros/fotocopias/materiales; Equipamiento=tijeras/máquinas/muebles; Personal=ropa/entretenimiento; Otro=lo demás
 VENTAS:
 - "vendí cera" -> VENTA_PRODUCTO Cera 1
 - "vendí 2 polvos" -> VENTA_PRODUCTO Texturizador 2
