@@ -117,6 +117,12 @@ const doPost = (e) => {
         res = agregarRecordatorio(accion, chatId);
       } else if (accion.tipo === "CANCELAR_CITA") {
         res = cancelarCita(accion, chatId);
+      } else if (accion.tipo === "INVENTARIO") {
+        if (accion.subtipo === "CONSULTAR") {
+          res = consultarInventario();
+        } else if (accion.subtipo === "ACTUALIZAR") {
+          res = actualizarStock(accion);
+        }
       } else if (accion.tipo === "ANULAR_ULTIMO_GASTO") {
         res = anularUltimoGasto();
       } else if (accion.tipo === "REPORTE_GASTOS") {

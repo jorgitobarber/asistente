@@ -112,6 +112,8 @@ Devuelve SOLO JSON válido:
     { "tipo": "INASISTENCIA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD opcional" },
     { "tipo": "REAGENDAR_CITA", "nombre_cliente": "string", "fecha_original": "YYYY-MM-DD opcional — fecha de la cita que se mueve", "hora_original": "HH:MM opcional", "nueva_fecha": "YYYY-MM-DD", "nueva_hora": "HH:MM" },
     { "tipo": "CANCELAR_CITA", "nombre_cliente": "string", "fecha": "YYYY-MM-DD opcional" },
+    { "tipo": "INVENTARIO", "subtipo": "CONSULTAR" },
+    { "tipo": "INVENTARIO", "subtipo": "ACTUALIZAR", "actualizaciones": [{"producto": "Cera|Texturizador", "cantidad": 0}] },
     { "tipo": "VENTA_PRODUCTO", "producto": "${getProductosGemini()}", "cantidad": 1, "nombre_cliente": "string opcional" },
     { "tipo": "REABASTECER", "producto": "${getProductosGemini()}", "cantidad": 1, "costo_total": 0 }
   ],
@@ -141,6 +143,14 @@ CATEGORÍAS GASTO: Insumos=productos de trabajo; Alimentación=comida/bebidas; T
 VENTAS:
 - "vendí cera" -> VENTA_PRODUCTO Cera 1
 - "vendí 2 polvos" -> VENTA_PRODUCTO Texturizador 2
+INVENTARIO:
+- "¿cuál es el stock?" / "qué hay en inventario" -> INVENTARIO/CONSULTAR
+- "el stock actual es: polvos 1, ceras 6" -> INVENTARIO/ACTUALIZAR (REEMPLAZA valor exacto, no registra gasto)
+- "actualiza el stock a ceras 3, polvos 2" -> INVENTARIO/ACTUALIZAR
+- Si dice "ceras brillantes X y ceras mate Y" -> Cera cantidad total (X+Y)
+DIFERENCIA CLAVE inventario:
+- REABASTECER: "compré 3 ceras" → SUMA al stock y registra gasto en Insumos
+- INVENTARIO/ACTUALIZAR: "el stock es X" → SETEA exacto sin registrar gasto
 REABASTECER:
 - "compré 3 ceras" -> REABASTECER Cera 3
 - "llegaron 4 ceras a 2500" -> REABASTECER Cera 4 (costo 10000)
