@@ -13,7 +13,7 @@
 const PRECIOS_CATALOG = {
   servicios: {
     'Corte':         { precio: 10000, aliases: ['corte', 'corte simple', 'corte de pelo', 'cortado'] },
-    'Corte + Barba': { precio: 15000, aliases: ['corte y barba', 'corte con barba', 'corte barba', 'corte+barba'] },
+    'Corte + Barba': { precio: 15000, aliases: ['corte y barba', 'corte con barba', 'corte barba', 'corte+barba', 'corte + barba', 'corte más barba', 'corte mas barba', 'con barba', 'barba'] },
   },
   addOns: {
     'Diseño': { precio: 1000, aliases: ['diseño', 'diseños', 'diseño de barba', 'con diseño'] },
@@ -57,7 +57,15 @@ const _getHojaHistorial = () => {
 const _normalizarServicio = (input) => {
   if (!input) return '';
   const lower = input.toLowerCase().trim();
-  for (const [nombre, data] of Object.entries(PRECIOS_CATALOG.servicios)) {
+  // Ordenar de más específico (alias más largo) a menos específico para
+  // que "Corte + Barba" gane sobre "Corte" cuando el texto contiene ambos.
+  const entradas = Object.entries(PRECIOS_CATALOG.servicios)
+    .sort((a, b) => {
+      const maxA = Math.max(...a[1].aliases.map(x => x.length));
+      const maxB = Math.max(...b[1].aliases.map(x => x.length));
+      return maxB - maxA;
+    });
+  for (const [nombre, data] of entradas) {
     if (data.aliases.some(a => lower.includes(a))) return nombre;
   }
   return input;
