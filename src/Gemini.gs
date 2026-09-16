@@ -123,26 +123,33 @@ JSON REGLAS: Sin comas finales, sin doble comillas en valores, sin saltos de lin
 BARBERIA:
 - "agendó Juan mañana a las 5pm" -> AGENDAR_CITA
 - "ayer a las 3pm agendó Luis un corte", "el martes agendó Matias" -> AGENDAR_CITA con la fecha pasada inferida (YYYY-MM-DD).
+- "el 12 de septiembre agendó Juan un corte a las 3pm" -> AGENDAR_CITA fecha:2026-09-12 hora:15:00 (fecha exacta con día y mes en español)
+- "el 5 de agosto agendó Pedro corte y barba" -> AGENDAR_CITA fecha:2026-08-05 (inferir año actual si no se indica)
 - "ya vino Juan" -> CONFIRMAR_VISITA
+- "el 12 de septiembre vino Juan" -> CONFIRMAR_VISITA fecha:2026-09-12
 - "Juan no vino" -> INASISTENCIA
 - "Juan no vino ayer" -> INASISTENCIA con fecha inferida
+- "el 10 de septiembre Juan no vino" -> INASISTENCIA fecha:2026-09-10
 - "Juan reagendó viernes 4pm" -> REAGENDAR_CITA (sin fecha_original, usa la más próxima)
 - "reagendá el corte de Tomás del jueves a las 5pm para hoy a las 5pm" -> REAGENDAR_CITA fecha_original:YYYY-MM-DD hora_original:17:00 nueva_fecha:YYYY-MM-DD nueva_hora:17:00
 - "cancelá la cita de Juan" -> CANCELAR_CITA nombre_cliente:Juan
 - "Juan canceló su turno del martes" -> CANCELAR_CITA nombre_cliente:Juan fecha:YYYY-MM-DD
 - "contactos hecho" -> CLIENTES/CONTACTOS_CONFIRMADO
+FECHAS EXACTAS: "el 12 de septiembre", "el 5 de agosto", "el 3 de enero" -> convierte siempre a YYYY-MM-DD usando el año actual (${new Date().getFullYear()}) salvo que se indique otro año.
 GASTOS (infiere categoría y normaliza descripción — sé conciso):
 - "gasté 3mil en monster" -> FINANZAS/GASTO Alimentación "Bebida energética (Monster)" 3000 (sin fecha = hoy)
 - "ayer gasté 5mil en uber" -> FINANZAS/GASTO Transporte "Uber" 5000 fecha:YYYY-MM-DD (ayer inferido)
 - "el jueves gasté 10mil en insumos" -> FINANZAS/GASTO Insumos "..." 10000 fecha:YYYY-MM-DD (jueves pasado inferido)
 - "el lunes compré navajas" / "hace 3 días compré..." -> FINANZAS/GASTO con fecha inferida
+- "el 12 de septiembre gasté 8mil en navajas" -> FINANZAS/GASTO Insumos "Navajas de afeitar" 8000 fecha:2026-09-12
+- "el 5 de agosto compré monster por 2500" -> FINANZAS/GASTO Alimentación "Bebida energética (Monster)" 2500 fecha:2026-08-05
 - "compré navajas pa la barba" -> FINANZAS/GASTO Insumos "Navajas de afeitar" monto
 - "pagué el uber" -> FINANZAS/GASTO Transporte "Uber" monto
 - "compré fotocopias" -> FINANZAS/GASTO Educación "Fotocopias" monto
 - "ese gasto estuvo mal" / "borra el último gasto" -> ANULAR_ULTIMO_GASTO
 - "reporte de gastos" / "cuánto gasté este mes" -> REPORTE_GASTOS MES
 - "cuánto gasté hoy/esta semana" -> REPORTE_GASTOS DIA/SEMANA
-IMPORTANTE: si el mensaje indica una fecha pasada (ayer, el lunes, hace N días, etc.), incluye siempre el campo "fecha" en YYYY-MM-DD calculado desde la fecha actual. Si no hay referencia temporal, omite "fecha" (se usará hoy).
+IMPORTANTE FECHAS: cualquier referencia temporal (ayer, el lunes, el 12 de septiembre, hace N días, etc.) debe convertirse a YYYY-MM-DD. Para fechas exactas con día y mes ("el 12 de septiembre") usar el año actual salvo que se indique otro. Si no hay referencia temporal, omitir "fecha" (se usará hoy).
 CATEGORÍAS GASTO: Insumos=productos de trabajo; Alimentación=comida/bebidas; Transporte=uber/micro/bencina; Servicios=luz/agua/internet/arriendo; Educación=libros/fotocopias/materiales; Equipamiento=tijeras/máquinas/muebles; Personal=ropa/entretenimiento; Otro=lo demás
 VENTAS:
 - "vendí cera" -> VENTA_PRODUCTO Cera 1
