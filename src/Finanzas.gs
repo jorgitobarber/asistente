@@ -56,9 +56,22 @@ const _getHojaGastos = () => {
  */
 const registrarFinanzas = (accion, fechaActual) => {
   try {
-    const ss    = SpreadsheetApp.openById(getSheetId());
-    const fecha = fechaActual.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
-    const hora  = fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
+    const ss = SpreadsheetApp.openById(getSheetId());
+
+    // Si Gemini detectó una fecha pasada (ej: "ayer gasté", "el jueves..."), úsala.
+    // De lo contrario, usar la fecha/hora actual.
+    let fecha, hora;
+    if (accion.fecha && /^\d{4}-\d{2}-\d{2}$/.test(accion.fecha)) {
+      // Fecha pasada indicada por el usuario
+      const [y, m, d] = accion.fecha.split('-').map(Number);
+      const fechaGasto = new Date(y, m - 1, d);
+      fecha = fechaGasto.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+      hora  = '(registrado ' + fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }) + ')';
+    } else {
+      fecha = fechaActual.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+      hora  = fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
+    }
+
     let msg = '';
 
     if (accion.subtipo === 'GASTO') {
@@ -70,10 +83,11 @@ const registrarFinanzas = (accion, fechaActual) => {
       const descripcion = (accion.descripcion || 'Sin descripción').toString().trim();
 
       _getHojaGastos().appendRow([fecha, hora, categoria, descripcion, monto]);
-      console.log(`[FINANZAS] Gasto: ${categoria} | ${descripcion} | $${monto}`);
+      console.log(`[FINANZAS] Gasto: ${categoria} | ${descripcion} | $${monto} | Fecha: ${fecha}`);
 
       const emoji = EMOJIS_CATEGORIA[categoria] || '📦';
-      msg = `💸 Gasto registrado:\n<b>${escapeHtml(descripcion)}</b>\n${emoji} ${escapeHtml(categoria)} | $${monto.toLocaleString('es-CL')}`;
+      const labelFecha = accion.fecha ? ` (${fecha})` : '';
+      msg = `💸 Gasto registrado${labelFecha}:\n<b>${escapeHtml(descripcion)}</b>\n${emoji} ${escapeHtml(categoria)} | $${monto.toLocaleString('es-CL')}`;
 
     } else if (accion.subtipo === 'INGRESO') {
       const monto = parseFloat(accion.monto) || 0;

@@ -83,7 +83,7 @@ const obtenerCitasPendientesConfirmar = () => {
     const data = _getHojaCitas().getDataRange().getValues();
     return data.slice(1)
       .filter(r => _normalizarFechaSheet(r[0]) === hoy && r[5] === 'agendada')
-      .map(r => ({ hora: r[1], nombre: r[2], servicio: r[3] }));
+      .map(r => ({ hora: _normalizarHoraSheet(r[1]), nombre: r[2], servicio: r[3] }));
   } catch (e) {
     console.error('[VISITAS] Error en obtenerCitasPendientesConfirmar: ' + e.message);
     return [];

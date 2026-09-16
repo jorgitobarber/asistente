@@ -97,7 +97,7 @@ SERVICIOS (normaliza):
 Devuelve SOLO JSON válido:
 {
   "acciones": [
-    { "tipo": "FINANZAS", "subtipo": "GASTO", "categoria": "Insumos|Alimentación|Transporte|Servicios|Educación|Equipamiento|Personal|Otro", "monto": 0, "descripcion": "descripción normalizada y concisa del gasto (ej: 'Bebida energética (Monster)', 'Navajas de afeitar', 'Uber')" },
+    { "tipo": "FINANZAS", "subtipo": "GASTO", "categoria": "Insumos|Alimentación|Transporte|Servicios|Educación|Equipamiento|Personal|Otro", "monto": 0, "descripcion": "descripción normalizada y concisa del gasto (ej: 'Bebida energética (Monster)', 'Navajas de afeitar', 'Uber')", "fecha": "YYYY-MM-DD solo si es distinta a hoy, ej: 'ayer gasté', 'el jueves gasté'" },
     { "tipo": "FINANZAS", "subtipo": "INGRESO", "monto": 0, "descripcion": "string" },
     { "tipo": "ANULAR_ULTIMO_GASTO" },
     { "tipo": "REPORTE_GASTOS", "periodo": "DIA|SEMANA|MES" },
@@ -132,13 +132,17 @@ BARBERIA:
 - "Juan canceló su turno del martes" -> CANCELAR_CITA nombre_cliente:Juan fecha:YYYY-MM-DD
 - "contactos hecho" -> CLIENTES/CONTACTOS_CONFIRMADO
 GASTOS (infiere categoría y normaliza descripción — sé conciso):
-- "gasté 3mil en monster" -> FINANZAS/GASTO Alimentación "Bebida energética (Monster)" 3000
+- "gasté 3mil en monster" -> FINANZAS/GASTO Alimentación "Bebida energética (Monster)" 3000 (sin fecha = hoy)
+- "ayer gasté 5mil en uber" -> FINANZAS/GASTO Transporte "Uber" 5000 fecha:YYYY-MM-DD (ayer inferido)
+- "el jueves gasté 10mil en insumos" -> FINANZAS/GASTO Insumos "..." 10000 fecha:YYYY-MM-DD (jueves pasado inferido)
+- "el lunes compré navajas" / "hace 3 días compré..." -> FINANZAS/GASTO con fecha inferida
 - "compré navajas pa la barba" -> FINANZAS/GASTO Insumos "Navajas de afeitar" monto
 - "pagué el uber" -> FINANZAS/GASTO Transporte "Uber" monto
 - "compré fotocopias" -> FINANZAS/GASTO Educación "Fotocopias" monto
 - "ese gasto estuvo mal" / "borra el último gasto" -> ANULAR_ULTIMO_GASTO
 - "reporte de gastos" / "cuánto gasté este mes" -> REPORTE_GASTOS MES
 - "cuánto gasté hoy/esta semana" -> REPORTE_GASTOS DIA/SEMANA
+IMPORTANTE: si el mensaje indica una fecha pasada (ayer, el lunes, hace N días, etc.), incluye siempre el campo "fecha" en YYYY-MM-DD calculado desde la fecha actual. Si no hay referencia temporal, omite "fecha" (se usará hoy).
 CATEGORÍAS GASTO: Insumos=productos de trabajo; Alimentación=comida/bebidas; Transporte=uber/micro/bencina; Servicios=luz/agua/internet/arriendo; Educación=libros/fotocopias/materiales; Equipamiento=tijeras/máquinas/muebles; Personal=ropa/entretenimiento; Otro=lo demás
 VENTAS:
 - "vendí cera" -> VENTA_PRODUCTO Cera 1
