@@ -146,6 +146,8 @@ GASTOS (infiere categoría y normaliza descripción — sé conciso):
 - "compré navajas pa la barba" -> FINANZAS/GASTO Insumos "Navajas de afeitar" monto
 - "pagué el uber" -> FINANZAS/GASTO Transporte "Uber" monto
 - "compré fotocopias" -> FINANZAS/GASTO Educación "Fotocopias" monto
+- "gasté 13mil en un mes de ps plus" -> FINANZAS/GASTO Personal "Suscripción PS Plus (1 mes)" 13000
+- "pagué netflix" / "pagué spotify" / "suscripción de..." -> FINANZAS/GASTO Personal "Suscripción [nombre]"
 - "ese gasto estuvo mal" / "borra el último gasto" -> ANULAR_ULTIMO_GASTO
 - "reporte de gastos" / "cuánto gasté este mes" -> REPORTE_GASTOS MES
 - "cuánto gasté hoy/esta semana" -> REPORTE_GASTOS DIA/SEMANA
