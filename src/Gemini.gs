@@ -16,7 +16,9 @@ const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/
  * Llama a la API de Gemini con reintentos automáticos ante errores 503/429.
  */
 const _callGeminiWithRetry = (systemInstruction, userText, maxRetries) => {
-  if (maxRetries === undefined) maxRetries = 5;
+  // IMPORTANTE: GAS web apps tienen timeout de ~30s.
+  // 3 reintentos con esperas cortas (1s + 2s = 3s total) es seguro.
+  if (maxRetries === undefined) maxRetries = 3;
 
   const payload = {
     contents: [{
@@ -45,10 +47,10 @@ const _callGeminiWithRetry = (systemInstruction, userText, maxRetries) => {
 
     if (code === 200) return response;
 
-    // 429 = rate limit, 503 = servicio no disponible, 500 = error transitorio del servidor
+    // 429 = rate limit, 503 = no disponible, 500 = error transitorio
     if (code === 429 || code === 503 || code === 500) {
-      const waitMs = Math.pow(2, attempt) * 3000; // 3s, 6s, 12s, 24s...
-      console.warn("[GEMINI] Error " + code + " en intento " + (attempt + 1) + ". Reintentando en " + (waitMs/1000) + "s...");
+      const waitMs = (attempt + 1) * 1000; // 1s, 2s, 3s — total máx 6s
+      console.warn("[GEMINI] Error " + code + " en intento " + (attempt + 1) + ". Esperando " + (waitMs/1000) + "s...");
       if (attempt < maxRetries - 1) {
         Utilities.sleep(waitMs);
       }
@@ -58,8 +60,7 @@ const _callGeminiWithRetry = (systemInstruction, userText, maxRetries) => {
     throw new Error("Error API Gemini. Código: " + code + ", Detalle: " + response.getContentText().substring(0, 300));
   }
 
-  // Error final amigable — casi siempre es rate limit de la API gratuita
-  throw new Error("El asistente de IA no está disponible en este momento (límite de solicitudes). Intenta de nuevo en 30 segundos.");
+  throw new Error("⏳ Gemini no disponible ahora (límite de la API). Intenta de nuevo en unos segundos.");
 };
 
 /**
