@@ -1,323 +1,132 @@
-/**
- * Módulo Finanzas: Registro de gastos con categorías, ingresos manuales y reportes.
- *
- * Hoja Gastos:   [fecha, hora, categoría, descripción, monto]   ← 5 columnas (nuevo schema)
- * Hoja Ingresos: [fecha, hora, descripción, monto]              ← ingresos manuales
- *
- * Los ingresos de clientes de barbería van a Historial_Visitas (gestionado por Citas.gs).
- * Esta es la fuente de verdad del flujo de caja.
- */
-
-// Categorías válidas — Gemini las asigna automáticamente al registrar un gasto
-const CATEGORIAS_GASTO = [
-  'Insumos',      // navajas, ceras, productos de trabajo
-  'Alimentación', // comida, bebidas (monster, almuerzo)
-  'Transporte',   // uber, micro, bencina
-  'Servicios',    // luz, agua, internet, arriendo
-  'Educación',    // libros, fotocopias, materiales universidad
-  'Equipamiento', // tijeras, máquinas, muebles del local
-  'Personal',     // ropa, entretenimiento
-  'Otro'          // lo que no encaja en ninguna categoría anterior
-];
-
-const EMOJIS_CATEGORIA = {
-  'Insumos': '🧴', 'Alimentación': '🍔', 'Transporte': '🚗',
-  'Servicios': '💡', 'Educación': '📚', 'Equipamiento': '✂️',
-  'Personal': '👕', 'Otro': '📦'
-};
-
-// ─── Helpers de Sheet ─────────────────────────────────────────────────────────
-
+/** Finanzas personales: esquemas aditivos, correcciones por ID y anulación sin borrar. */
+const CATEGORIAS_GASTO = ['Insumos', 'Alimentación', 'Transporte', 'Servicios', 'Educación', 'Equipamiento', 'Personal', 'Otro'];
 const getSheetId = () => {
   const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-  if (!id) throw new Error('Falta configurar SHEET_ID en las propiedades del script.');
+  if (!id) throw new Error('Falta SHEET_ID.');
   return id;
 };
-
 const _getOrCreateSheet = (ss, name, headers) => {
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-    sheet.appendRow(headers);
-  }
-  return sheet;
+  let s = ss.getSheetByName(name);
+  if (!s) { s = ss.insertSheet(name); s.appendRow(headers); }
+  return s;
 };
-
-const _getHojaGastos = () => {
+const COLUMNAS_GASTOS = ['fecha', 'hora', 'categoría', 'descripción', 'monto', 'id', 'ambito', 'estado', 'creado_en', 'actualizado_en', 'origen'];
+const COLUMNAS_INGRESOS = ['fecha', 'hora', 'descripción', 'monto', 'id', 'ambito', 'estado', 'creado_en', 'actualizado_en', 'origen'];
+const _getHojaGastos = () => hojaConEsquema('Gastos', COLUMNAS_GASTOS);
+const hojaMovimiento = (tipo) => tipo === 'GASTO' ? _getHojaGastos() : hojaConEsquema('Ingresos', COLUMNAS_INGRESOS);
+const indicesMovimiento = (tipo) => tipo === 'GASTO'
+  ? { desc: 3, monto: 4, id: 5, ambito: 6, estado: 7, creado: 8, actualizado: 9, origen: 10 }
+  : { desc: 2, monto: 3, id: 4, ambito: 5, estado: 6, creado: 7, actualizado: 8, origen: 9 };
+const validarMovimiento = (a) => {
+  if (typeof a.monto !== 'number' || !Number.isFinite(a.monto) || a.monto <= 0) return '¿Cuál es el monto? Debe ser un número mayor que cero.';
+  if (typeof a.descripcion !== 'string' || !a.descripcion.trim() || a.descripcion.length > 300) return 'Indica una descripción breve del movimiento.';
+  if (!['PERSONAL', 'BARBERIA'].includes(a.ambito)) return '¿Es personal o de la barbería?';
+  if (a.fecha !== undefined && !fechaValida(a.fecha)) return 'Indica una fecha válida (AAAA-MM-DD).';
+  if (a.categoria && !CATEGORIAS_GASTO.includes(a.categoria)) return 'Indica una categoría válida: ' + CATEGORIAS_GASTO.join(', ') + '.';
+  return '';
+};
+const registrarFinanzas = (a, ahora = new Date()) => {
+  if (!['GASTO', 'INGRESO'].includes(a.subtipo)) return fallo('Tipo de movimiento inválido.');
+  const error = validarMovimiento(a);
+  if (error) return pedirDato(a, error);
+  const s = hojaMovimiento(a.subtipo), id = Utilities.getUuid();
+  const fila = a.subtipo === 'GASTO'
+    ? [a.fecha || fechaChile(ahora), horaChile(ahora), a.categoria || 'Otro', textoSeguroSheet(a.descripcion), a.monto]
+    : [a.fecha || fechaChile(ahora), horaChile(ahora), textoSeguroSheet(a.descripcion), a.monto];
+  s.appendRow([...fila, id, a.ambito, 'ACTIVO', ahora, ahora, 'BOT_MANUAL']);
+  return { ok: true, mensaje: '✅ ' + (a.subtipo === 'GASTO' ? 'Gasto' : 'Ingreso manual') + ' registrado: ' + dinero(a.monto) + '\n' + escapeHtml(a.descripcion) + ' · ' + a.ambito + ' · ' + fila[0], referencia: { tipo: 'FINANZAS', movimiento: a.subtipo, id } };
+};
+const procesarFinanzas = (a, contexto = {}) => {
+  if (a.subtipo === 'LISTAR') return listarMovimientos(a);
+  if (['GASTO', 'INGRESO'].includes(a.subtipo)) return registrarFinanzas(a);
+  if (!['MODIFICAR', 'ANULAR'].includes(a.subtipo)) return fallo('Operación financiera no reconocida.');
+  const ref = a.usar_ultimo === true ? contexto.ultimo : { tipo: 'FINANZAS', id: a.id, movimiento: a.movimiento };
+  if (!ref || ref.tipo !== 'FINANZAS' || !ref.id || !['GASTO', 'INGRESO'].includes(ref.movimiento)) return fallo('Indica el ID y si es gasto o ingreso; no hay un movimiento reciente inequívoco.');
+  if (a.movimiento && a.movimiento !== ref.movimiento) return fallo('El movimiento reciente no es del tipo indicado. Consulta su ID antes de corregirlo.');
+  const s = hojaMovimiento(ref.movimiento), c = indicesMovimiento(ref.movimiento), data = s.getDataRange().getValues();
+  const i = data.findIndex((r, n) => n > 0 && r[c.id] === ref.id);
+  if (i < 1) return fallo('No encontré ese movimiento.');
+  const fila = data[i].slice();
+  if (fila[c.estado] === 'ANULADO') return fallo('Ese movimiento ya está anulado.');
+  if (a.subtipo === 'ANULAR') fila[c.estado] = 'ANULADO';
+  else {
+    const actual = { monto: fila[c.monto], descripcion: String(fila[c.desc]), ambito: fila[c.ambito], fecha: fechaRegistro(fila[0]), categoria: ref.movimiento === 'GASTO' ? fila[2] : undefined };
+    const campos = ['monto', 'descripcion', 'ambito', 'fecha'];
+    if (ref.movimiento === 'GASTO') campos.push('categoria');
+    let cambios = 0;
+    campos.forEach(k => { if (Object.prototype.hasOwnProperty.call(a, k)) { actual[k] = a[k]; cambios++; } });
+    if (!cambios) return fallo('Indica qué dato quieres cambiar.');
+    const error = validarMovimiento(actual);
+    if (error) return pedirDato(a, error);
+    fila[0] = actual.fecha; fila[c.desc] = textoSeguroSheet(actual.descripcion); fila[c.monto] = actual.monto; fila[c.ambito] = actual.ambito;
+    if (ref.movimiento === 'GASTO') fila[2] = actual.categoria;
+  }
+  fila[c.actualizado] = new Date();
+  s.getRange(i + 1, 1, 1, fila.length).setValues([fila]);
+  return { ok: true, mensaje: '✅ Movimiento ' + (a.subtipo === 'ANULAR' ? 'anulado (historial conservado).' : 'corregido: ' + dinero(fila[c.monto]) + ' · ' + fila[c.ambito] + ' · ' + fechaRegistro(fila[0])), referencia: ref };
+};
+/** Lectura compatible con registros antiguos; no inventa ámbito ni suma visitas de Fresha. */
+const resumirMovimientos = (inicio, fin, ambito) => {
   const ss = SpreadsheetApp.openById(getSheetId());
-  return _getOrCreateSheet(ss, 'Gastos', ['fecha', 'hora', 'categoría', 'descripción', 'monto']);
+  const resultado = { PERSONAL: { gastos: 0, ingresos: 0 }, BARBERIA: { gastos: 0, ingresos: 0 }, SIN_CLASIFICAR: { gastos: 0, ingresos: 0 }, omitidos: 0, categorias: {} };
+  ['GASTO', 'INGRESO'].forEach(tipo => {
+    const s = ss.getSheetByName(tipo === 'GASTO' ? 'Gastos' : 'Ingresos');
+    if (!s) return;
+    const c = indicesMovimiento(tipo), data = s.getDataRange().getValues();
+    const esperadas = tipo === 'GASTO' ? COLUMNAS_GASTOS : COLUMNAS_INGRESOS;
+    const base = tipo === 'GASTO' ? 5 : 4;
+    if (data[0].length < base || data[0].slice(0, base).some((v, i) => normalizarTexto(v) !== normalizarTexto(esperadas[i]))) throw new Error('Esquema histórico incompatible.');
+    data.slice(1).forEach(r => {
+      if (r[c.estado] === 'ANULADO' || r.every(v => v === '')) return;
+      const f = fechaRegistro(r[0]), monto = Number(r[c.monto]);
+      if (!f || !Number.isFinite(monto) || monto <= 0) { resultado.omitidos++; return; }
+      if (f < inicio || f > fin) return;
+      const grupo = ['PERSONAL', 'BARBERIA'].includes(r[c.ambito]) ? r[c.ambito] : 'SIN_CLASIFICAR';
+      if (ambito && ambito !== 'TODOS' && grupo !== ambito) return;
+      resultado[grupo][tipo === 'GASTO' ? 'gastos' : 'ingresos'] += monto;
+      if (tipo === 'GASTO') resultado.categorias[r[2] || 'Otro'] = (resultado.categorias[r[2] || 'Otro'] || 0) + monto;
+    });
+  });
+  return resultado;
 };
-
-// ─── Registro de gasto / ingreso ──────────────────────────────────────────────
-
-/**
- * Registra un gasto (con categoría) o un ingreso manual.
- * Llamada desde Main.gs cuando accion.tipo === 'FINANZAS'.
- */
-const registrarFinanzas = (accion, fechaActual) => {
-  try {
-    const ss = SpreadsheetApp.openById(getSheetId());
-
-    // Si Gemini detectó una fecha pasada (ej: "ayer gasté", "el jueves..."), úsala.
-    // De lo contrario, usar la fecha/hora actual.
-    let fecha, hora;
-    if (accion.fecha && /^\d{4}-\d{2}-\d{2}$/.test(accion.fecha)) {
-      // Fecha pasada indicada por el usuario
-      const [y, m, d] = accion.fecha.split('-').map(Number);
-      const fechaGasto = new Date(y, m - 1, d);
-      fecha = fechaGasto.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
-      hora  = '(registrado ' + fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }) + ')';
-    } else {
-      fecha = fechaActual.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
-      hora  = fechaActual.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
-    }
-
-    let msg = '';
-
-    if (accion.subtipo === 'GASTO') {
-      const monto = parseFloat(accion.monto) || 0;
-      if (monto <= 0) {
-        return { ok: false, mensaje: '⚠️ El monto del gasto debe ser mayor a 0.' };
-      }
-      const categoria  = CATEGORIAS_GASTO.includes(accion.categoria) ? accion.categoria : 'Otro';
-      const descripcion = (accion.descripcion || 'Sin descripción').toString().trim();
-
-      _getHojaGastos().appendRow([fecha, hora, categoria, descripcion, monto]);
-      console.log(`[FINANZAS] Gasto: ${categoria} | ${descripcion} | $${monto} | Fecha: ${fecha}`);
-
-      const emoji = EMOJIS_CATEGORIA[categoria] || '📦';
-      const labelFecha = accion.fecha ? ` (${fecha})` : '';
-      msg = `💸 Gasto registrado${labelFecha}:\n<b>${escapeHtml(descripcion)}</b>\n${emoji} ${escapeHtml(categoria)} | $${monto.toLocaleString('es-CL')}`;
-
-    } else if (accion.subtipo === 'INGRESO') {
-      const monto = parseFloat(accion.monto) || 0;
-      const sheetI = _getOrCreateSheet(ss, 'Ingresos', ['fecha', 'hora', 'descripción', 'monto']);
-      sheetI.appendRow([fecha, hora, accion.descripcion, monto]);
-      console.log(`[FINANZAS] Ingreso: $${monto} — ${accion.descripcion}`);
-      msg = `💰 Ingreso registrado:\n$${monto.toLocaleString('es-CL')} — ${escapeHtml(accion.descripcion)}`;
-    }
-
-    return { ok: true, mensaje: msg };
-  } catch (error) {
-    console.error(`[FINANZAS] Error en registrarFinanzas: ${error.message}`);
-    return { ok: false, mensaje: `❌ Error al registrar finanzas: ${escapeHtml(error.message)}` };
-  }
+const reporteFinanzasPersonal = (a = {}) => {
+  if (a.ambito && !['PERSONAL', 'BARBERIA', 'TODOS', 'SIN_CLASIFICAR'].includes(a.ambito)) return fallo('Ámbito no reconocido.');
+  const r = rangoReporte(a), datos = resumirMovimientos(r.inicio, r.fin, a.ambito);
+  let mensaje = '💰 Registros del ' + r.inicio + ' al ' + r.fin + '\n';
+  ['PERSONAL', 'BARBERIA', 'SIN_CLASIFICAR'].forEach(k => {
+    if (a.ambito && a.ambito !== 'TODOS' && a.ambito !== k) return;
+    mensaje += '\n' + k + ': gastos ' + dinero(datos[k].gastos) + ' · ingresos registrados ' + dinero(datos[k].ingresos);
+  });
+  Object.keys(datos.categorias).forEach(k => { mensaje += '\n• ' + escapeHtml(k) + ': ' + dinero(datos.categorias[k]); });
+  mensaje += '\n\nNo incluye las ventas de Fresha ni representa la utilidad del negocio. Los datos antiguos conservan su ámbito sin clasificar.';
+  if (datos.omitidos) mensaje += '\n⚠️ Hay ' + datos.omitidos + ' filas con fecha o monto inválido que requieren revisión.';
+  return { ok: true, mensaje };
 };
-
-// ─── Anular último gasto ───────────────────────────────────────────────────────
-
-/**
- * Borra la última fila de la hoja Gastos.
- * Llamada cuando el usuario dice "ese gasto estuvo mal" o "borra el último gasto".
- */
-const anularUltimoGasto = () => {
-  try {
-    const sheet   = _getHojaGastos();
-    const lastRow = sheet.getLastRow();
-
-    if (lastRow <= 1) {
-      return { ok: false, mensaje: '⚠️ No hay gastos registrados para anular.' };
-    }
-
-    const data = sheet.getRange(lastRow, 1, 1, 5).getValues()[0];
-    const desc  = String(data[3] || 'Sin descripción');
-    const cat   = String(data[2] || 'Otro');
-    const monto = parseFloat(data[4]) || 0;
-    const emoji = EMOJIS_CATEGORIA[cat] || '📦';
-
-    sheet.deleteRow(lastRow);
-    console.log(`[FINANZAS] Último gasto anulado: ${desc} | $${monto}`);
-    return {
-      ok: true,
-      mensaje: `↩️ Último gasto anulado:\n<b>${escapeHtml(desc)}</b>\n${emoji} ${escapeHtml(cat)} | $${monto.toLocaleString('es-CL')}`
-    };
-  } catch (error) {
-    console.error(`[FINANZAS] Error en anularUltimoGasto: ${error.message}`);
-    return { ok: false, mensaje: `❌ No pude anular el gasto: ${escapeHtml(error.message)}` };
-  }
+/** Compatibilidad de lectura para herramientas históricas; ya no suma Historial_Visitas. */
+const _calcularFinanzasRango = (ss, inicio, fin) => {
+  const r = resumirMovimientos(fechaChile(inicio), fechaChile(fin));
+  const grupos = [r.PERSONAL, r.BARBERIA, r.SIN_CLASIFICAR];
+  const ingresos = grupos.reduce((n, g) => n + g.ingresos, 0), gastos = grupos.reduce((n, g) => n + g.gastos, 0);
+  return { ingresos, gastos, balance: ingresos - gastos, clientes: 0 };
 };
+const generarReporteGastos = (a) => reporteFinanzasPersonal(a);
+const anularUltimoGasto = () => fallo('Usa Telegram para anular un movimiento por su referencia reciente.');
 
-// ─── Cálculo central de finanzas (MOVIDO desde Notificaciones.gs) ─────────────
-
-/**
- * Calcula ingresos, gastos y balance en un rango de fechas.
- * Fuentes:
- *   - Historial_Visitas → ingresos de barbería (solo PAGADO)
- *   - Ingresos          → ingresos manuales (ventas de producto, otros)
- *   - Gastos            → todos los gastos (nueva schema de 5 cols: monto en col[4])
- */
-const _calcularFinanzasRango = (ss, dateStart, dateEnd) => {
-  let ingresos = 0, gastos = 0, clientes = 0;
-
-  const startStr = Utilities.formatDate(dateStart, 'America/Santiago', 'yyyy-MM-dd');
-  const endStr   = Utilities.formatDate(dateEnd,   'America/Santiago', 'yyyy-MM-dd');
-
-  const normFecha = (v) => {
-    if (!v) return '';
-    if (v instanceof Date) return Utilities.formatDate(v, 'America/Santiago', 'yyyy-MM-dd');
-    const str = v.toString().trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    if (str.includes('/')) {
-      const p = str.split(' ')[0].split('/');
-      if (p.length === 3 && parseInt(p[2]) > 31)
-        return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-    }
-    const d = new Date(str);
-    return !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd') : '';
-  };
-
-  const enRango = (v) => { const f = normFecha(v); return f >= startStr && f <= endStr; };
-
-  // 1. Ingresos de barbería (Historial_Visitas — solo visitas PAGADAS)
-  const shHist = ss.getSheetByName('Historial_Visitas');
-  if (shHist) {
-    const dataH = shHist.getDataRange().getValues();
-    for (let i = 1; i < dataH.length; i++) {
-      if (!enRango(dataH[i][0])) continue;
-      const estadoPago = ((dataH[i][7] || '') + '').toUpperCase();
-      if (estadoPago === 'PENDIENTE') { clientes++; continue; }
-      ingresos += parseFloat(dataH[i][6]) || 0;
-      clientes++;
-    }
-  }
-
-  // 2. Ingresos manuales (ventas de producto u otros — hoja Ingresos)
-  const shIng = ss.getSheetByName('Ingresos');
-  if (shIng) {
-    const dataI = shIng.getDataRange().getValues();
-    for (let i = 1; i < dataI.length; i++) {
-      if (!enRango(dataI[i][0])) continue;
-      ingresos += parseFloat(dataI[i][3]) || 0;
-    }
-  }
-
-  // 3. Gastos (nueva schema: col[4] = monto)
-  const shG = ss.getSheetByName('Gastos');
-  if (shG) {
-    const dataG = shG.getDataRange().getValues();
-    for (let i = 1; i < dataG.length; i++) {
-      if (!enRango(dataG[i][0])) continue;
-      gastos += parseFloat(dataG[i][4]) || 0;
-    }
-  }
-
-  console.log(`[FINANZAS] Rango ${startStr}→${endStr}: ingresos=$${ingresos}, gastos=$${gastos}, clientes=${clientes}`);
-  return { ingresos, gastos, clientes, balance: ingresos - gastos };
-};
-
-// ─── Reporte por categoría ────────────────────────────────────────────────────
-
-/**
- * Agrupa gastos por categoría en un rango de fechas.
- */
-const _calcularGastosPorCategoria = (ss, dateStart, dateEnd) => {
-  const startStr = Utilities.formatDate(dateStart, 'America/Santiago', 'yyyy-MM-dd');
-  const endStr   = Utilities.formatDate(dateEnd,   'America/Santiago', 'yyyy-MM-dd');
-  const porCategoria = {};
-  let totalGastos = 0;
-
-  const normFecha = (v) => {
-    if (!v) return '';
-    if (v instanceof Date) return Utilities.formatDate(v, 'America/Santiago', 'yyyy-MM-dd');
-    const str = v.toString().trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    const d = new Date(str);
-    return !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd') : '';
-  };
-
-  const sheet = ss.getSheetByName('Gastos');
-  if (!sheet) return { porCategoria, totalGastos };
-
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    const f = normFecha(data[i][0]);
-    if (f < startStr || f > endStr) continue;
-    const cat   = (data[i][2] || 'Otro').toString();
-    const monto = parseFloat(data[i][4]) || 0;
-    porCategoria[cat] = (porCategoria[cat] || 0) + monto;
-    totalGastos += monto;
-  }
-
-  return { porCategoria, totalGastos };
-};
-
-/**
- * Genera y envía reporte de gastos por categoría.
- * Llamado desde Main.gs cuando accion.tipo === 'REPORTE_GASTOS'.
- */
-const generarReporteGastos = (accion, chatId) => {
-  try {
-    const ss  = SpreadsheetApp.openById(getSheetId());
-    const hoy = new Date();
-    let dateStart, dateEnd, labelPeriodo;
-
-    if (accion.periodo === 'DIA') {
-      dateStart = new Date(hoy); dateEnd = new Date(hoy);
-      labelPeriodo = 'Hoy';
-    } else if (accion.periodo === 'SEMANA') {
-      dateStart = new Date(hoy); dateStart.setDate(hoy.getDate() - 7);
-      dateEnd   = new Date(hoy);
-      labelPeriodo = 'Últimos 7 días';
-    } else { // MES (default)
-      dateStart    = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-      dateEnd      = new Date(hoy);
-      labelPeriodo = hoy.toLocaleDateString('es-CL', { month: 'long', year: 'numeric', timeZone: 'America/Santiago' });
-    }
-
-    const fin                       = _calcularFinanzasRango(ss, dateStart, dateEnd);
-    const { porCategoria, totalGastos } = _calcularGastosPorCategoria(ss, dateStart, dateEnd);
-
-    let msg = `📊 <b>Reporte Financiero — ${escapeHtml(labelPeriodo)}</b>\n`;
-
-    // Gastos por categoría
-    if (totalGastos > 0) {
-      msg += `\n💸 <b>GASTOS POR CATEGORÍA</b>\n`;
-      Object.entries(porCategoria)
-        .sort((a, b) => b[1] - a[1]) // Mayor gasto primero
-        .forEach(([cat, monto]) => {
-          const pct   = totalGastos > 0 ? Math.round((monto / totalGastos) * 100) : 0;
-          const emoji = EMOJIS_CATEGORIA[cat] || '📦';
-          msg += `${emoji} <b>${escapeHtml(cat)}</b>: $${monto.toLocaleString('es-CL')} (${pct}%)\n`;
-        });
-    } else {
-      msg += `\n💸 Sin gastos registrados en este período.\n`;
-    }
-
-    // Resumen financiero
-    msg += `\n💰 <b>RESUMEN</b>\n`;
-    msg += `Ingresos:   $${fin.ingresos.toLocaleString('es-CL')}\n`;
-    msg += `Gastos:     $${fin.gastos.toLocaleString('es-CL')}\n`;
-    const signo  = fin.balance >= 0 ? '+' : '';
-    const icono  = fin.balance >= 0 ? '✅' : '🔴';
-    msg += `Balance:    <b>${signo}$${fin.balance.toLocaleString('es-CL')}</b> ${icono}\n`;
-    if (fin.clientes > 0) msg += `Clientes:   ${fin.clientes}\n`;
-
-    sendTelegramMessage(chatId, msg);
-    console.log(`[FINANZAS] Reporte enviado — ${labelPeriodo}`);
-    // Devolvemos ok:true con mensaje null porque ya enviamos directamente
-    // (el mensaje puede ser largo, mejor enviarlo desde aquí que por el consolidado)
-    return { ok: true, mensaje: null };
-
-  } catch (error) {
-    console.error(`[FINANZAS] Error en generarReporteGastos: ${error.message}`);
-    return { ok: false, mensaje: `❌ No pude generar el reporte: ${escapeHtml(error.message)}` };
-  }
-};
-
-// ─── Inicialización (correr una vez) ──────────────────────────────────────────
-
-/**
- * Borra la hoja Gastos y la recrea con el nuevo schema de 5 columnas.
- * Ejecutar UNA VEZ manualmente desde el editor de GAS si venías usando
- * el schema viejo de 4 columnas [fecha, hora, descripción, monto].
- */
-const resetearHojaGastos = () => {
-  const ss = SpreadsheetApp.openById(getSheetId());
-  const existing = ss.getSheetByName('Gastos');
-  if (existing) {
-    ss.deleteSheet(existing);
-    console.log('[FINANZAS] Hoja Gastos eliminada.');
-  }
-  _getHojaGastos(); // Recrea con el nuevo schema
-  console.log('[FINANZAS] ✅ Hoja Gastos recreada: [fecha, hora, categoría, descripción, monto]');
+const listarMovimientos = (a = {}) => {
+  const rango = rangoReporte(a), ss = SpreadsheetApp.openById(getSheetId()), items = [];
+  if (a.ambito && !['PERSONAL', 'BARBERIA', 'TODOS', 'SIN_CLASIFICAR'].includes(a.ambito)) return fallo('Ámbito no reconocido.');
+  ['GASTO', 'INGRESO'].forEach(tipo => {
+    if (a.movimiento && a.movimiento !== tipo) return;
+    const s = ss.getSheetByName(tipo === 'GASTO' ? 'Gastos' : 'Ingresos');
+    if (!s) return;
+    const c = indicesMovimiento(tipo);
+    s.getDataRange().getValues().slice(1).forEach(r => {
+      const f = fechaRegistro(r[0]), ambito = r[c.ambito] || 'SIN_CLASIFICAR';
+      if (!f || f < rango.inicio || f > rango.fin || r[c.estado] === 'ANULADO') return;
+      if (a.ambito && a.ambito !== 'TODOS' && a.ambito !== ambito) return;
+      items.push({ fecha: f, linea: tipo + ' · ' + f + ' · ' + dinero(r[c.monto]) + ' · ' + escapeHtml(r[c.desc]) + ' · ' + escapeHtml(ambito) + '\nID: ' + (r[c.id] || '(histórico sin ID: ejecutar preparación)') });
+    });
+  });
+  items.sort((a, b) => b.fecha.localeCompare(a.fecha));
+  return { ok: true, mensaje: items.length ? items.slice(0, 20).map(i => i.linea).join('\n\n') + (items.length > 20 ? '\nMostrando 20 de ' + items.length + '. Reduce el período.' : '') : 'No hay movimientos activos en ese período.' };
 };

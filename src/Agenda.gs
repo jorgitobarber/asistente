@@ -1,198 +1,107 @@
-/**
- * Módulo Agenda: Maneja la conexión con Google Calendar.
- * Permite crear, modificar y eliminar eventos para la universidad, la barbería y compromisos.
- */
-
+/** Agenda personal. Fresha es independiente y no participa en la disponibilidad. */
 const getCalendarId = (key) => {
   const id = PropertiesService.getScriptProperties().getProperty(key);
-  if (!id) throw new Error(`Falta configurar ${key} en PropertiesService.`);
+  if (!id) throw new Error('Falta configurar ' + key + '.');
   return id;
 };
-
-/**
- * Retorna el calendario objetivo basado en la clasificación de Gemini
- */
-const getCalendarTarget = (calendarioType) => {
-  if (calendarioType === "UNIVERSIDAD") return CalendarApp.getCalendarById(getCalendarId('CALENDAR_UNI_ID'));
-  if (calendarioType === "COMPROMISOS") return CalendarApp.getCalendarById(getCalendarId('CALENDAR_COMPROMISOS_ID'));
-  return CalendarApp.getCalendarById(getCalendarId('CALENDAR_BARBERIA_ID')); // Default
+const getCalendarTarget = (tipo) => {
+  const claves = { UNIVERSIDAD: 'CALENDAR_UNI_ID', COMPROMISOS: 'CALENDAR_COMPROMISOS_ID' };
+  if (!claves[tipo]) throw new Error('Solo se permiten calendarios personales o de universidad.');
+  const cal = CalendarApp.getCalendarById(getCalendarId(claves[tipo]));
+  if (!cal) throw new Error('Calendario inaccesible.');
+  return cal;
 };
-
-/**
- * Verifica si hay eventos superpuestos en cualquiera de los 3 calendarios
- */
-const _verificarChoques = (startTime, endTime) => {
-  const keys = ['CALENDAR_UNI_ID', 'CALENDAR_BARBERIA_ID', 'CALENDAR_COMPROMISOS_ID'];
-  const choques = [];
-  
-  for (const key of keys) {
-    const calId = PropertiesService.getScriptProperties().getProperty(key);
-    if (!calId) continue;
-    
-    const cal = CalendarApp.getCalendarById(calId);
-    if (cal) {
-      const events = cal.getEvents(startTime, endTime);
-      for (const e of events) {
-        choques.push(e.getTitle());
-      }
-    }
-  }
+const _parseDateTime = (f, h) => fechaHoraChile(f, h || '12:00');
+const _verificarChoques = (inicio, fin, excluirId, excluirCalendario) => {
+  const choques = [], vistos = new Set();
+  ['CALENDAR_UNI_ID', 'CALENDAR_COMPROMISOS_ID'].forEach(key => {
+    const id = getCalendarId(key);
+    if (vistos.has(id)) return;
+    vistos.add(id);
+    const cal = CalendarApp.getCalendarById(id);
+    if (!cal) throw new Error('No pude comprobar ambos calendarios personales.');
+    cal.getEvents(inicio, fin).forEach(ev => {
+      if (ev.getId() === excluirId && id === excluirCalendario) return;
+      choques.push(ev.getTitle());
+    });
+  });
   return choques;
 };
-
-/**
- * Parsea fecha y hora en un objeto Date
- */
-const _parseDateTime = (fechaStr, horaStr) => {
-  const [year, month, day] = fechaStr ? fechaStr.split("-") : [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
-  const [hour, min] = horaStr ? horaStr.split(":") : [12, 0];
-  return new Date(year, month - 1, day, hour, min);
+const _buscarEventoUnico = (a, calendar) => {
+  if (a.id_evento_calendar) {
+    const ev = calendar.getEventById(a.id_evento_calendar);
+    if (!ev) throw new Error('No encontré el evento indicado.');
+    return ev;
+  }
+  const f = a.fecha_original || a.fecha_estimada;
+  if (!fechaValida(f) || !a.evento) throw new Error('Indica nombre y fecha del evento.');
+  const inicio = fechaHoraChile(f, '00:00'), fin = fechaHoraChile(sumarDias(f, 1), '00:00');
+  let eventos = calendar.getEvents(inicio, fin).filter(ev => normalizarTexto(ev.getTitle()).includes(normalizarTexto(a.evento)));
+  if (a.hora_original) eventos = eventos.filter(ev => horaChile(ev.getStartTime()) === a.hora_original);
+  if (eventos.length !== 1) throw new Error(eventos.length ? 'Hay varios eventos coincidentes. Indica nombre y hora exactos.' : 'No encontré ese evento.');
+  return eventos[0];
 };
-
-/**
- * Busca un evento en el día especificado que coincida con el nombre
- */
-const _buscarEventoUnico = (accion, calendar) => {
-  if (accion.id_evento_calendar) {
-    try {
-      const ev = calendar.getEventById(accion.id_evento_calendar);
-      if (ev) return ev;
-    } catch(e) {
-      console.warn(`[AGENDA] No se encontró el evento por ID ${accion.id_evento_calendar}, intentando fallback...`);
-    }
-  }
-
-  let startSearch, endSearch;
-  let searchTitle = accion.evento;
-
-  // Si tenemos fecha y hora original, buscamos exactamente en esa hora
-  if (accion.fecha_original && accion.hora_original) {
-    startSearch = _parseDateTime(accion.fecha_original, accion.hora_original);
-    // Un margen de 1 minuto para que encuentre el evento que empieza a esa hora
-    endSearch = new Date(startSearch.getTime() + (60 * 1000));
-  } else {
-    // Fallback: buscamos en todo el día de la fecha estimada
-    const fecha = accion.fecha_original || accion.fecha_estimada;
-    startSearch = _parseDateTime(fecha, "00:00");
-    endSearch = new Date(startSearch.getTime() + (24 * 60 * 60 * 1000));
-  }
-  
-  let events;
-  if (searchTitle && searchTitle.trim() !== "") {
-    events = calendar.getEvents(startSearch, endSearch, { search: searchTitle });
-  } else {
-    events = calendar.getEvents(startSearch, endSearch);
-  }
-
-  // Si aún así no encuentra, intentamos solo por tiempo sin el título (puede que el usuario no lo haya dicho exacto)
-  if (events.length === 0 && accion.fecha_original && accion.hora_original) {
-    events = calendar.getEvents(startSearch, endSearch);
-  }
-  
-  if (events.length === 0) {
-    throw new Error(`No se encontró el evento programado para el ${accion.fecha_original || accion.fecha_estimada} a las ${accion.hora_original || ""}.`);
-  }
-  if (events.length > 1) {
-    const opciones = events.map(e => `- ${e.getTitle()} (${e.getStartTime().getHours()}:${e.getStartTime().getMinutes().toString().padStart(2, '0')})`).join("\n");
-    throw new Error(`Encontré varios eventos en ese horario. Por favor sé más específico. ¿Cuál de estos es?\n${opciones}`);
-  }
-  
-  return events[0];
+const validarDuracion = (v) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 5 && v <= 1440);
+const revisarChoques = (inicio, fin, a, id, calId) => {
+  const choques = _verificarChoques(inicio, fin, id, calId);
+  if (choques.length && a.ignorar_choques !== true) throw new Error('Hay un choque con: ' + choques.join(', ') + '. Repite la solicitud completa indicando «ignora el choque» si quieres continuar. Fresha no está conectado.');
 };
-
-/**
- * Crea un evento nuevo
- */
-const crearEvento = (accion, calendar) => {
-  const isAllDay = !accion.hora_estimada || accion.hora_estimada.includes('opcional');
-  const horaParsed = isAllDay ? "12:00" : accion.hora_estimada;
-  const startTime = _parseDateTime(accion.fecha_estimada, horaParsed);
-  let duracionMin = 60;
-  const tituloLC = (accion.evento || '').toLowerCase();
-  if (tituloLC.includes('corte') && tituloLC.includes('barba')) duracionMin = 45;
-  else if (tituloLC.includes('corte')) duracionMin = 30;
-  else if (tituloLC.includes('perfilado') || tituloLC.includes('diseño') || tituloLC.includes('cejas')) duracionMin = 15;
-  
-  const endTime = new Date(startTime.getTime() + (duracionMin * 60 * 1000));
-  
-  if (!accion.ignorar_choques && !isAllDay) {
-    const choques = _verificarChoques(startTime, endTime);
-    if (choques.length > 0) {
-      throw new Error(`⚠️ ¡Cuidado Jefe! Tienes un choque de horario con: "${choques.join(", ")}". No lo he agendado por precaución. Si quieres que lo agende de todas formas, solo confírmamelo (ej: "dale nomás", "agéndalo igual").`);
-    }
+const crearEvento = (a, cal) => {
+  if (!a.evento || !fechaValida(a.fecha_estimada) || (a.hora_estimada && !horaValida(a.hora_estimada)) || !validarDuracion(a.duracion_minutos)) throw new Error('Datos de evento inválidos.');
+  let ev;
+  if (!a.hora_estimada) ev = cal.createAllDayEvent(a.evento, fechaHoraChile(a.fecha_estimada, '12:00'));
+  else {
+    const inicio = fechaHoraChile(a.fecha_estimada, a.hora_estimada), fin = new Date(inicio.getTime() + (a.duracion_minutos || 60) * 60000);
+    revisarChoques(inicio, fin, a);
+    ev = cal.createEvent(a.evento, inicio, fin);
   }
-
-  let eventObj;
-  if (isAllDay) {
-    const dateOnly = new Date(startTime.getFullYear(), startTime.getMonth(), startTime.getDate());
-    eventObj = calendar.createAllDayEvent(accion.evento, dateOnly);
-    console.log(`[AGENDA] Creado evento All-Day: ${accion.evento} el ${dateOnly}`);
-  } else {
-    eventObj = calendar.createEvent(accion.evento, startTime, endTime);
-    console.log(`[AGENDA] Creado: ${accion.evento} el ${startTime}`);
-  }
-  return eventObj.getId();
+  return ev.getId();
 };
-
-/**
- * Modifica un evento existente (nombre, fecha u hora)
- */
-const modificarEvento = (accion, calendar) => {
-  const event = _buscarEventoUnico(accion, calendar);
-  
-  if (accion.nuevo_evento) {
-    event.setTitle(accion.nuevo_evento);
-  }
-  
-  if (accion.nueva_fecha || accion.nueva_hora) {
-    const oldStart = event.getStartTime();
-    const fallbackFecha = `${oldStart.getFullYear()}-${(oldStart.getMonth()+1).toString().padStart(2,'0')}-${oldStart.getDate().toString().padStart(2,'0')}`;
-    const newFecha = accion.nueva_fecha || fallbackFecha;
-    
-    // Si no mandan hora nueva, mantenemos la que ya tenía el evento
-    const fallbackHora = `${oldStart.getHours().toString().padStart(2, '0')}:${oldStart.getMinutes().toString().padStart(2, '0')}`;
-    const newHora = accion.nueva_hora || fallbackHora;
-    
-    const newStartTime = _parseDateTime(newFecha, newHora);
-    const newEndTime = new Date(newStartTime.getTime() + (60 * 60 * 1000));
-    event.setTime(newStartTime, newEndTime);
-  }
-  
-  console.log(`[AGENDA] Modificado: ahora es ${event.getTitle()} el ${event.getStartTime()}`);
-};
-
-/**
- * Elimina un evento existente
- */
-const eliminarEvento = (accion, calendar) => {
-  const event = _buscarEventoUnico(accion, calendar);
-  const title = event.getTitle();
-  event.deleteEvent();
-  console.log(`[AGENDA] Eliminado: ${title}`);
-};
-
-/**
- * Enrutador principal de Agenda
- */
-const procesarAgenda = (accion) => {
-  try {
-    const calendar = getCalendarTarget(accion.calendario);
-    if (!calendar) throw new Error(`No se encontró calendario: ${accion.calendario}`);
-
-    let msg = "";
-    if (accion.subtipo === "MODIFICAR") {
-      modificarEvento(accion, calendar);
-      msg = `✅ Evento modificado en tu calendario (${escapeHtml(accion.calendario)})`;
-    } else if (accion.subtipo === "ELIMINAR") {
-      eliminarEvento(accion, calendar);
-      msg = `🗑️ Evento eliminado de tu calendario (${escapeHtml(accion.calendario)})`;
+const modificarEvento = (a, cal) => {
+  const ev = _buscarEventoUnico(a, cal);
+  if (!a.nueva_fecha && !a.nueva_hora && !a.nuevo_evento && a.duracion_minutos === undefined) throw new Error('Indica qué dato quieres cambiar.');
+  if (!validarDuracion(a.duracion_minutos)) throw new Error('Duración inválida.');
+  if (a.nuevo_evento !== undefined && (typeof a.nuevo_evento !== 'string' || !a.nuevo_evento.trim() || a.nuevo_evento.length > 300)) throw new Error('Título inválido.');
+  if (a.nueva_fecha || a.nueva_hora || a.duracion_minutos !== undefined) {
+    const f = a.nueva_fecha || fechaChile(ev.getStartTime());
+    if (ev.isAllDayEvent() && !a.nueva_hora) {
+      const dias = Math.max(1, Math.round((ev.getEndTime() - ev.getStartTime()) / 86400000));
+      if (a.duracion_minutos !== undefined) throw new Error('Para dar duración horaria a un evento de día completo, indica una hora.');
+      ev.setAllDayDates(fechaHoraChile(f, '12:00'), fechaHoraChile(sumarDias(f, dias), '12:00'));
     } else {
-      crearEvento(accion, calendar);
-      msg = `📅 Evento agregado a tu calendario (${escapeHtml(accion.calendario)}):\n<b>${escapeHtml(accion.evento)}</b>`;
+      const inicio = fechaHoraChile(f, a.nueva_hora || horaChile(ev.getStartTime()));
+      const duracion = a.duracion_minutos !== undefined ? a.duracion_minutos * 60000 : ev.isAllDayEvent() ? 3600000 : ev.getEndTime() - ev.getStartTime();
+      const fin = new Date(inicio.getTime() + duracion);
+      revisarChoques(inicio, fin, a, ev.getId(), cal.getId());
+      ev.setTime(inicio, fin);
     }
-    return { ok: true, mensaje: msg };
-  } catch (error) {
-    console.error(`[AGENDA] Error en procesarAgenda: ${error.message}`);
-    return { ok: false, mensaje: `❌ Error de agenda: ${escapeHtml(error.message)}` };
   }
+  // El título cambia después de validar el horario; un choque no deja un título modificado.
+  if (a.nuevo_evento) ev.setTitle(a.nuevo_evento);
+  return ev.getId();
+};
+const eliminarEvento = (a, cal) => { const ev = _buscarEventoUnico(a, cal); ev.deleteEvent(); };
+const procesarAgenda = (accion, contexto = {}) => {
+  const a = { ...accion };
+  if (a.usar_ultimo === true) {
+    if (!contexto.ultimo || contexto.ultimo.tipo !== 'AGENDA') return fallo('No hay un evento reciente inequívoco. Indica nombre y fecha.');
+    a.id_evento_calendar = contexto.ultimo.id; a.calendario = contexto.ultimo.calendario;
+  }
+  if (!['CREAR', 'MODIFICAR', 'ELIMINAR'].includes(a.subtipo)) return fallo('Operación de agenda desconocida.');
+  if (!['UNIVERSIDAD', 'COMPROMISOS'].includes(a.calendario)) return pedirDato(a, '¿Es un evento de universidad o un compromiso personal?');
+  if (a.subtipo === 'CREAR') {
+    if (typeof a.evento !== 'string' || !a.evento.trim() || a.evento.length > 300) return pedirDato(a, '¿Qué evento quieres crear?');
+    if (!fechaValida(a.fecha_estimada)) return pedirDato(a, '¿En qué fecha es el evento?');
+    if (a.hora_estimada && !horaValida(a.hora_estimada)) return pedirDato(a, 'Indica una hora válida.');
+  }
+  try {
+    const cal = getCalendarTarget(a.calendario);
+    let id;
+    if (a.subtipo === 'CREAR') id = crearEvento(a, cal);
+    else if (a.subtipo === 'MODIFICAR') id = modificarEvento(a, cal);
+    else eliminarEvento(a, cal);
+    const res = { ok: true, mensaje: '✅ Evento ' + ({ CREAR: 'creado', MODIFICAR: 'modificado', ELIMINAR: 'eliminado' })[a.subtipo] + ' en ' + a.calendario + '.' };
+    if (id) res.referencia = { tipo: 'AGENDA', id, calendario: a.calendario };
+    return res;
+  } catch (error) { return fallo(escapeHtml(error.message)); }
 };

@@ -1,155 +1,72 @@
-/**
- * Módulo ToDo: Maneja la lista de tareas pendientes.
- * Conexión a Google Sheets, pestaña "To_Do".
- */
-
-const getSheetIdForToDo = () => {
-  const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-  if (!id) throw new Error("Falta configurar SHEET_ID en las propiedades del script.");
-  return id;
-};
-
-/**
- * Obtiene o crea la hoja To_Do
- */
-const _getToDoSheet = () => {
-  const ss = SpreadsheetApp.openById(getSheetIdForToDo());
-  let sheet = ss.getSheetByName("To_Do");
-  if (!sheet) {
-    sheet = ss.insertSheet("To_Do");
-    sheet.appendRow(["fecha_creación", "categoría", "tarea", "estado", "fecha_completada"]);
+/** Tareas con vencimiento, identificador y estados; no borra el historial. */
+const _getToDoSheet = () => hojaConEsquema('To_Do', ['fecha_creación', 'categoría', 'tarea', 'estado', 'fecha_completada', 'id', 'fecha_limite', 'actualizado_en']);
+const categoriasTarea = ['Personal', 'Universidad', 'Barberia'];
+const buscarTarea = (data, a, contexto) => {
+  let id = a.id;
+  if (a.usar_ultimo === true) {
+    if (!contexto.ultimo || contexto.ultimo.tipo !== 'TODO') return { error: 'No hay una tarea reciente inequívoca. Indica su nombre o ID.' };
+    id = contexto.ultimo.id;
   }
-  return sheet;
+  const nombre = normalizarTexto(a.tarea);
+  if (!id && !nombre) return { error: 'Indica el nombre o ID de la tarea.' };
+  const candidatas = data.map((r, i) => ({ r, i })).filter(x => x.i > 0 && x.r[3] === 'pendiente');
+  let halladas = id ? candidatas.filter(x => x.r[5] === id) : candidatas.filter(x => normalizarTexto(x.r[2]) === nombre);
+  if (!id && !halladas.length) halladas = candidatas.filter(x => nombre.split(/\s+/).every(p => normalizarTexto(x.r[2]).includes(p)));
+  if (!halladas.length) return { error: 'No encontré esa tarea pendiente.' };
+  if (halladas.length > 1) return { error: 'Hay varias tareas coincidentes. Indica un nombre más específico o el ID mostrado en la lista.' };
+  return halladas[0];
 };
-
-/**
- * Agrega una nueva tarea a la lista
- */
-const agregarTarea = (accion) => {
-  const sheet = _getToDoSheet();
-  const fechaActual = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
-  const categoria = accion.categoria || "Personal";
-  const tarea = accion.tarea;
-  
-  sheet.appendRow([fechaActual, categoria, tarea, "pendiente", ""]);
-  console.log(`[TODO] Tarea agregada: ${tarea} (${categoria})`);
-  return { ok: true, mensaje: `✅ Tarea agregada en [${categoria}]: ${tarea}` };
+const obtenerTareas = (a = {}) => {
+  const data = _getToDoSheet().getDataRange().getValues();
+  const hoy = fechaChile(), manana = sumarDias(hoy, 1), fin = sumarDias(hoy, 7);
+  return data.slice(1).filter(r => {
+    if (r[3] !== 'pendiente') return false;
+    if (a.categoria && a.categoria !== 'TODAS' && normalizarTexto(r[1]) !== normalizarTexto(a.categoria)) return false;
+    const f = fechaRegistro(r[6]);
+    if (a.periodo === 'VENCIDAS') return f && f < hoy;
+    if (a.periodo === 'HOY') return f === hoy;
+    if (a.periodo === 'MANANA') return f === manana;
+    if (a.periodo === 'SEMANA') return f && f >= hoy && f <= fin;
+    return true;
+  }).map(r => ({ categoria: r[1], tarea: r[2], id: r[5] || '', fecha: fechaRegistro(r[6]) }))
+    .sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999'));
 };
-
-/**
- * Busca la fila de una tarea pendiente que coincida parcial o totalmente con el nombre
- */
-const _buscarFilaTarea = (sheet, nombreTarea) => {
-  if (!nombreTarea) return -1;
-  const searchWords = nombreTarea.toString().toLowerCase().trim().split(/\s+/);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    const tareaStr = data[i][2] ? data[i][2].toString().toLowerCase() : "";
-    const estado = data[i][3] ? data[i][3].toString().toLowerCase() : "";
-    
-    if (estado === "pendiente") {
-      const match = searchWords.every(word => tareaStr.includes(word));
-      if (match) return i + 1;
+const listarTareas = (a = {}) => {
+  if (a.periodo && !['TODAS', 'HOY', 'MANANA', 'SEMANA', 'VENCIDAS'].includes(a.periodo)) return fallo('Período de tareas no reconocido.');
+  const tareas = obtenerTareas(a);
+  if (!tareas.length) return { ok: true, mensaje: '✅ No hay tareas pendientes para ese filtro.' };
+  const lineas = tareas.slice(0, 30).map(t => '• [' + escapeHtml(t.categoria) + '] ' + escapeHtml(t.tarea) + ' · ' + (t.fecha || 'sin vencimiento') + (t.id ? '\n  ID: ' + t.id : ''));
+  return { ok: true, mensaje: '📝 Tareas pendientes\n' + lineas.join('\n') + (tareas.length > 30 ? '\nMostrando 30 de ' + tareas.length + '. Filtra por categoría o fecha.' : '') };
+};
+const procesarToDo = (a, contexto = {}) => {
+  if (a.subtipo === 'LISTAR') return listarTareas(a);
+  if (!['AGREGAR', 'MODIFICAR', 'COMPLETAR', 'ELIMINAR'].includes(a.subtipo)) return fallo('Operación de tareas no reconocida.');
+  if (a.categoria && !categoriasTarea.includes(a.categoria)) return pedirDato(a, '¿La tarea es Personal, Universidad o Barberia?');
+  if (a.fecha_limite !== undefined && a.fecha_limite !== '' && !fechaValida(a.fecha_limite)) return pedirDato(a, 'Indica una fecha límite válida.');
+  if (a.subtipo === 'AGREGAR' && (typeof a.tarea !== 'string' || !a.tarea.trim() || a.tarea.length > 300)) return pedirDato(a, '¿Qué tarea quieres agregar? Usa una descripción breve.');
+  const s = _getToDoSheet(), ahora = new Date();
+  if (a.subtipo === 'AGREGAR') {
+    const id = Utilities.getUuid(), categoria = a.categoria || 'Personal';
+    s.appendRow([ahora, categoria, textoSeguroSheet(a.tarea), 'pendiente', '', id, a.fecha_limite || '', ahora]);
+    return { ok: true, mensaje: '✅ Tarea guardada: ' + escapeHtml(a.tarea) + ' · ' + (a.fecha_limite || 'sin vencimiento'), referencia: { tipo: 'TODO', id } };
+  }
+  const encontrada = buscarTarea(s.getDataRange().getValues(), a, contexto);
+  if (encontrada.error) return fallo(encontrada.error);
+  const fila = encontrada.r.slice();
+  while (fila.length < 8) fila.push('');
+  fila[5] = fila[5] || Utilities.getUuid(); fila[7] = ahora;
+  if (a.subtipo === 'MODIFICAR') {
+    if (a.nueva_tarea !== undefined) {
+      if (typeof a.nueva_tarea !== 'string' || !a.nueva_tarea.trim() || a.nueva_tarea.length > 300) return fallo('El nuevo nombre debe ser breve y no estar vacío.');
+      fila[2] = textoSeguroSheet(a.nueva_tarea);
     }
-  }
-  return -1;
-};
-
-/**
- * Marca una tarea como completada
- */
-const completarTarea = (accion) => {
-  if (!accion.tarea) {
-    return { ok: false, mensaje: "⚠️ Por favor especifica qué tarea quieres completar." };
-  }
-  const sheet = _getToDoSheet();
-  const fila = _buscarFilaTarea(sheet, accion.tarea);
-  
-  if (fila !== -1) {
-    const fechaActual = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
-    sheet.getRange(fila, 4).setValue("completada");
-    sheet.getRange(fila, 5).setValue(fechaActual);
-    console.log(`[TODO] Tarea completada en fila ${fila}`);
-    return { ok: true, mensaje: `✅ Tarea completada: ${accion.tarea}` };
+    if (a.categoria) fila[1] = a.categoria;
+    if (a.fecha_limite !== undefined) fila[6] = a.fecha_limite || '';
+    if (a.nueva_tarea === undefined && !a.categoria && a.fecha_limite === undefined) return fallo('Indica qué dato de la tarea quieres cambiar.');
   } else {
-    return { ok: false, mensaje: `⚠️ No encontré ninguna tarea pendiente que coincida con "${accion.tarea}".` };
+    fila[3] = a.subtipo === 'COMPLETAR' ? 'completada' : 'eliminada';
+    if (a.subtipo === 'COMPLETAR') fila[4] = ahora;
   }
-};
-
-/**
- * Elimina una tarea de la lista (borra la fila)
- */
-const eliminarTarea = (accion) => {
-  if (!accion.tarea) {
-    return { ok: false, mensaje: "⚠️ Por favor dime qué tarea específica quieres eliminar. Ej: 'borra la tarea de comprar cloro'." };
-  }
-  const sheet = _getToDoSheet();
-  const fila = _buscarFilaTarea(sheet, accion.tarea);
-  
-  if (fila !== -1) {
-    sheet.deleteRow(fila);
-    console.log(`[TODO] Tarea eliminada en fila ${fila}`);
-    return { ok: true, mensaje: `🗑️ Tarea eliminada: ${accion.tarea}` };
-  } else {
-    return { ok: false, mensaje: `⚠️ No encontré ninguna tarea pendiente que coincida con "${accion.tarea}".` };
-  }
-};
-
-/**
- * Lista las tareas pendientes por categoría o todas
- */
-const listarTareas = (accion) => {
-  const sheet = _getToDoSheet();
-  const data = sheet.getDataRange().getValues();
-  let tareas = [];
-  
-  for (let i = 1; i < data.length; i++) {
-    const categoria = data[i][1];
-    const tareaStr = data[i][2];
-    const estado = data[i][3] ? data[i][3].toString().toLowerCase() : "";
-    
-    if (estado === "pendiente") {
-      if (accion.categoria && accion.categoria !== "TODAS") {
-        const catStr = (categoria || "").toString().toLowerCase();
-        const accCat = accion.categoria.toString().toLowerCase();
-        if (catStr === accCat) {
-          tareas.push(`- ${tareaStr}`);
-        }
-      } else {
-        tareas.push(`- [${categoria}] ${tareaStr}`);
-      }
-    }
-  }
-  
-  let mensaje = "📝 *Tus Pendientes:*\n\n";
-  if (tareas.length === 0) {
-    mensaje += "¡No tienes tareas pendientes! Estás al día. 🙌";
-  } else {
-    mensaje += tareas.join("\n");
-  }
-  
-  return { ok: true, mensaje: mensaje };
-};
-
-/**
- * Enrutador principal de ToDo
- */
-const procesarToDo = (accion) => {
-  try {
-    if (accion.subtipo === "AGREGAR") {
-      return agregarTarea(accion);
-    } else if (accion.subtipo === "COMPLETAR") {
-      return completarTarea(accion);
-    } else if (accion.subtipo === "ELIMINAR") {
-      return eliminarTarea(accion);
-    } else if (accion.subtipo === "LISTAR") {
-      return listarTareas(accion);
-    } else {
-      console.warn(`[TODO] Subtipo desconocido: ${accion.subtipo}`);
-      return { ok: false, mensaje: `⚠️ Subtipo desconocido de tarea: ${accion.subtipo}` };
-    }
-  } catch (error) {
-    console.error(`[TODO] Error en procesarToDo: ${error.message}`);
-    return { ok: false, mensaje: `❌ Hubo un error con las tareas: ${error.message}` };
-  }
+  s.getRange(encontrada.i + 1, 1, 1, 8).setValues([fila]);
+  return { ok: true, mensaje: '✅ Tarea ' + (a.subtipo === 'MODIFICAR' ? 'corregida' : fila[3]) + ': ' + escapeHtml(fila[2]), referencia: { tipo: 'TODO', id: fila[5] } };
 };

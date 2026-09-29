@@ -1,109 +1,56 @@
-/**
- * Módulo Recordatorios: Maneja alertas y avisos puntuales programados por el usuario.
- * Requiere un gatillo (Trigger) basado en tiempo que ejecute `procesarRecordatorios`
- * cada 10-15 minutos.
- */
-
-const _getHojaRecordatorios = () => {
-  const ss = SpreadsheetApp.openById(getSheetId());
-  let sheet = ss.getSheetByName('Recordatorios');
-  if (!sheet) {
-    sheet = ss.insertSheet('Recordatorios');
-    sheet.appendRow(['fecha_creacion', 'fecha_aviso', 'hora_aviso', 'mensaje', 'estado', 'chat_id']);
-    console.log('[RECORDATORIOS] Hoja creada con columnas base.');
-  }
-  return sheet;
+/** Avisos personales: vencimiento de Chile, bloqueo y entrega confirmada. */
+const _getHojaRecordatorios = () => hojaConEsquema('Recordatorios', ['fecha_creacion', 'fecha_aviso', 'hora_aviso', 'mensaje', 'estado', 'chat_id', 'id', 'enviado_en', 'intentos']);
+const agregarRecordatorio = (a, chatId) => {
+  if (a.subtipo && a.subtipo !== 'AGREGAR') return fallo('Solo está disponible agregar recordatorios.');
+  if (!fechaValida(a.fecha_aviso)) return pedirDato(a, '¿En qué fecha quieres el aviso?');
+  if (!horaValida(a.hora_aviso)) return pedirDato(a, '¿A qué hora quieres el aviso?');
+  if (typeof a.mensaje !== 'string' || !a.mensaje.trim() || a.mensaje.length > 1000) return pedirDato(a, '¿Qué quieres que te recuerde? Usa un texto breve.');
+  let objetivo;
+  try { objetivo = fechaHoraChile(a.fecha_aviso, a.hora_aviso); } catch (e) { return pedirDato(a, e.message); }
+  if (objetivo <= new Date()) return pedirDato(a, 'Esa hora ya pasó. Indica una fecha y hora futuras.');
+  const id = Utilities.getUuid();
+  _getHojaRecordatorios().appendRow([new Date(), a.fecha_aviso, a.hora_aviso, textoSeguroSheet(a.mensaje), 'pendiente', String(chatId), id, '', 0]);
+  return { ok: true, mensaje: '⏰ Aviso guardado: ' + escapeHtml(a.mensaje) + '\n' + a.fecha_aviso + ' ' + a.hora_aviso + ' (Chile). Se revisan los avisos cada 5 minutos; no es una alarma exacta.' };
 };
-
-/**
- * Registra un nuevo recordatorio en la hoja.
- */
-const agregarRecordatorio = (accion, chatId) => {
+function procesarRecordatorios() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
   try {
-    const sheet = _getHojaRecordatorios();
-    const hoy = new Date();
-    const fechaCreacion = hoy.toLocaleString('es-CL', { timeZone: 'America/Santiago' });
-    
-    if (!accion.fecha_aviso || !accion.hora_aviso || !accion.mensaje) {
-      return { ok: false, mensaje: "⚠️ Faltan datos (fecha, hora o mensaje) para crear el recordatorio." };
-    }
-    
-    sheet.appendRow([
-      fechaCreacion, 
-      accion.fecha_aviso, 
-      accion.hora_aviso, 
-      accion.mensaje, 
-      'pendiente', 
-      chatId
-    ]);
-    
-    console.log(`[RECORDATORIOS] Añadido: ${accion.mensaje} para ${accion.fecha_aviso} ${accion.hora_aviso}`);
-    return { ok: true, mensaje: `⏰ Recordatorio programado para el ${accion.fecha_aviso} a las ${accion.hora_aviso}: "${accion.mensaje}"` };
-  } catch (error) {
-    return { ok: false, mensaje: `❌ No pude programar el recordatorio: ${error.message}` };
-  }
-};
-
-/**
- * Función que debe ser ejecutada por el Trigger de Apps Script (ej. cada 15 min).
- * Revisa recordatorios pendientes cuya fecha/hora ya pasaron y los envía.
- */
-const procesarRecordatorios = () => {
-  try {
-    const sheet = _getHojaRecordatorios();
-    const data = sheet.getDataRange().getValues();
-    if (data.length <= 1) return; // Solo encabezados
-    
-    // 'ahora' ya es un instante absoluto correcto: no hace falta reconstruirlo
-    // a partir de un string local. El bug anterior perdía el "a. m./p. m." al
-    // separar por espacios, generando siempre una fecha inválida (Invalid Date),
-    // por lo que el aviso NUNCA se disparaba.
-    const ahora = new Date();
-
-    let procesados = 0;
-
+    const owner = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+    if (!owner) return;
+    reintentarRespuestasPendientes(owner);
+    const s = _getHojaRecordatorios(), data = s.getDataRange().getValues(), ahora = new Date();
     for (let i = 1; i < data.length; i++) {
-      const estado = (data[i][4] || '').toString().toLowerCase();
-      if (estado !== 'pendiente') continue;
-
-      const fechaAvisoStr = data[i][1].toString(); // YYYY-MM-DD
-      const horaAvisoStr = data[i][2].toString(); // HH:MM
-      const mensaje = data[i][3];
-      const chatId = data[i][5];
-
-      if (!fechaAvisoStr || !horaAvisoStr) continue;
-
-      // Armamos la fecha objetivo (el proyecto usa timeZone America/Santiago
-      // en appsscript.json, así que este string sin offset se interpreta en esa zona)
-      const objetivo = new Date(`${fechaAvisoStr}T${horaAvisoStr}:00`);
-
-      if (isNaN(objetivo.getTime())) {
-        console.warn(`[RECORDATORIOS] Fila ${i + 1} con fecha/hora inválida ("${fechaAvisoStr}" "${horaAvisoStr}"). Se omite.`);
-        continue;
-      }
-
-      // Si la fecha actual ya superó o es igual a la fecha objetivo
-      if (ahora >= objetivo) {
-        // Mandamos el aviso
-        const textoAviso = `⏰ *RECORDATORIO*\n\n${mensaje}`;
-        try {
-          if (chatId) {
-            sendTelegramMessage(chatId, textoAviso);
-            console.log(`[RECORDATORIOS] Enviado: "${mensaje}" a ${chatId}`);
-          }
-          // Marcar como enviado
-          sheet.getRange(i + 1, 5).setValue('enviado');
-          procesados++;
-        } catch (e) {
-          console.error(`[RECORDATORIOS] Falló envío Telegram en fila ${i+1}: ${e.message}`);
-        }
+      const r = data[i];
+      if (r[4] !== 'pendiente' || String(r[5]) !== owner) continue;
+      let objetivo;
+      try { objetivo = fechaHoraChile(fechaRegistro(r[1]), horaRegistro(r[2])); } catch (_) { console.warn('[RECORDATORIOS] Fecha inválida en fila ' + (i + 1)); continue; }
+      if (objetivo > ahora) continue;
+      const intentos = Number(r[8] || 0) + 1;
+      s.getRange(i + 1, 9).setValue(intentos);
+      if (sendTelegramMessage(owner, '⏰ <b>Recordatorio</b>\n' + escapeHtml(r[3])).ok) {
+        s.getRange(i + 1, 5).setValue('enviado');
+        s.getRange(i + 1, 8).setValue(ahora);
       }
     }
-    
-    if (procesados > 0) {
-      console.log(`[RECORDATORIOS] Se procesaron y enviaron ${procesados} recordatorios.`);
+  } finally { lock.releaseLock(); }
+}
+
+/** Bajo el mismo bloqueo: reintenta SOLO la respuesta, nunca las escrituras del mensaje. */
+const reintentarRespuestasPendientes = (owner) => {
+  const s = SpreadsheetApp.openById(getSheetId()).getSheetByName('Bot_Updates');
+  if (!s) return;
+  const data = s.getDataRange().getValues();
+  let intentados = 0;
+  for (let i = 1; i < data.length && intentados < 5; i++) {
+    if (data[i][4] === 'si') continue;
+    let mensaje = data[i][3];
+    if (data[i][2] === 'procesando') {
+      mensaje = '⚠️ Una solicitud quedó interrumpida. Revisa los registros antes de repetirla. No la ejecutaré automáticamente otra vez.';
+      s.getRange(i + 1, 3, 1, 2).setValues([['revisar', mensaje]]);
     }
-  } catch (error) {
-    console.error(`[RECORDATORIOS] Error general en procesarRecordatorios: ${error.message}`);
+    if (!mensaje) continue;
+    intentados++;
+    if (sendTelegramMessage(owner, mensaje).ok) s.getRange(i + 1, 5).setValue('si');
   }
 };

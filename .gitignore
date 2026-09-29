@@ -9,3 +9,6 @@ Thumbs.db
 # Credenciales y configuración local sensible
 *.env
 .env.local
+.local-backup/
+node_modules/
+.clasprc.json
