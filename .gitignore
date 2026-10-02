@@ -12,3 +12,7 @@ Thumbs.db
 .local-backup/
 node_modules/
 .clasprc.json
+
+# Diagnóstico privado del entorno real
+DIAGNOSTICO_2026-10-02.md
+REPARACION_2026-10-02.md

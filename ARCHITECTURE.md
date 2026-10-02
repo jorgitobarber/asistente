@@ -46,11 +46,11 @@ Se conservan las columnas iniciales de Gastos, Ingresos, To_Do y Recordatorios. 
 
 Los registros nuevos usan IDs y origen BOT_MANUAL; no se reclasifica el histórico. Ámbito desconocido se informa SIN_CLASIFICAR. Anular un movimiento conserva la fila con estado ANULADO. El reporte no incluye Historial_Visitas ni se presenta como utilidad del negocio. Los ingresos antiguos pueden contener ventas: se mantienen separados por su ámbito sin clasificar hasta revisión.
 
-`prepararDatosPersonales()` asigna IDs faltantes al histórico, después de validar esquemas y respaldar. Es repetible y no cambia montos, nombres ni categorías. Las consultas históricas admiten objetos Date, YYYY-MM-DD y fechas día/mes/año con / o -.
+`prepararDatosPersonales_()` asigna IDs faltantes al histórico, después de validar esquemas y respaldar. Es repetible. Repara las diez filas heredadas de cuatro campos moviendo descripción y monto a sus columnas; usa Otro para la categoría desconocida y no inventa ámbito. Las consultas históricas admiten objetos Date, YYYY-MM-DD y fechas día/mes/año con / o -.
 
 ## Contexto y correcciones
 
-Script Properties conserva último ID y solicitud pendiente durante 30 minutos. El contexto se limita a 8 KB. Una respuesta corta completa los campos de la acción pendiente; no puede cambiar el tipo ni el ID. Las demás acciones esperan. Se puede cancelar toda la solicitud pendiente. Tras expirar, pedir nombre/ID/solicitud completa.
+Bot_Contexto conserva el plan, progreso, último ID y solicitud pendiente. Las referencias para correcciones expiran a los 30 minutos; las aclaraciones y advertencias de ejecución interrumpida se conservan. El contexto se limita a 40.000 caracteres, por debajo del límite de una celda, y no usa el límite de 8 KB de Script Properties. Una respuesta corta completa los campos de la acción pendiente; no puede cambiar el tipo ni el ID. Las demás acciones esperan. Se puede cancelar toda la solicitud pendiente. Tras expirar, pedir nombre/ID/solicitud completa.
 
 Las correcciones financieras fuera del contexto requieren ID y tipo GASTO/INGRESO; LISTAR muestra IDs. Las tareas aceptan ID o nombre inequívoco. Los eventos aceptan una referencia reciente o nombre/fecha/hora. No existe una confirmación implícita «dale nomás» para choques: se requiere repetir la solicitud completa autorizando ignorarlos.
 
@@ -58,13 +58,13 @@ Las correcciones financieras fuera del contexto requieren ID y tipo GASTO/INGRES
 
 Obligatorias: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (chat privado), WEBHOOK_SECRET, GEMINI_API_KEY, SHEET_ID, CALENDAR_UNI_ID, CALENDAR_COMPROMISOS_ID y WEBAPP_URL.
 
-Opcionales: TELEGRAM_USER_ID (por defecto el ID del chat privado), GEMINI_MODEL (por defecto gemini-3.8-flash), MOSTRAR_CLIMA=true, CLIMA_LATITUD, CLIMA_LONGITUD. Las credenciales viven solo en Script Properties.
+Opcionales: TELEGRAM_USER_ID (por defecto el ID del chat privado), GEMINI_MODEL (por defecto gemini-2.5-flash), MOSTRAR_CLIMA=true, CLIMA_LATITUD, CLIMA_LONGITUD. Las credenciales viven solo en Script Properties.
 
-Resúmenes alrededor de 07:30 y 22:30 Chile; avisos cada 5 minutos, sin garantía de alarma exacta. `configurarTriggers()` reemplaza solo esos tres handlers. Los calendarios de Fresha no se consultan. La creación sin hora es de día completo; un evento con hora dura 60 minutos si no se indica otra duración.
+Resúmenes alrededor de 07:30 y 22:30 Chile; avisos cada 5 minutos, sin garantía de alarma exacta. `configurarTriggers_()` reemplaza solo esos tres handlers. Los calendarios de Fresha no se consultan. La creación sin hora es de día completo; un evento con hora dura 60 minutos si no se indica otra duración.
 
 ## Pruebas y límites
 
-Ejecutar `node --test tests/bot.test.cjs`. Pruebas con dobles de Sheets, Calendar, Telegram, Gemini, propiedades y bloqueo. No usan credenciales ni red. Validan lógica local, no permisos reales, cuotas, interpretación del modelo ni entrega en producción.
+Ejecutar `node --test tests/bot.test.cjs`. Pruebas con dobles de Sheets, Calendar, Telegram, Gemini, propiedades y bloqueo. No usan credenciales ni red. Las pruebas locales se complementan con la validación real documentada en DEPLOYMENT.md.
 
 El diario de actualizaciones crece con el uso y se lee completo; adecuado inicialmente para un usuario, requiere política de archivo si aumenta el volumen. Los registros de respuesta contienen datos personales y deben permanecer privados en Sheets. Los respaldos son copias únicas previas a la migración; para despliegues posteriores hacer un respaldo completo adicional.
 

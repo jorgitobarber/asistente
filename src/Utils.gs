@@ -1,4 +1,4 @@
-const _descWeatherCode = (code) => {
+const _descWeatherCode_ = (code) => {
   if (code === 0)          return '☀️ Soleado';
   if (code <= 3)           return '⛅ Nublado parcial';
   if (code <= 48)          return '☁️ Nublado/Neblina';
@@ -17,7 +17,7 @@ const _descWeatherCode = (code) => {
  * @param {boolean} manana - true para mañana, false para hoy
  * @returns {string} Descripción corta: "☀️ Soleado 15°-22°C"
  */
-const _obtenerClima = (manana) => {
+const _obtenerClima_ = (manana) => {
   try {
     const props = PropertiesService.getScriptProperties();
     const lat   = props.getProperty('CLIMA_LATITUD')  || '-33.45';
@@ -37,7 +37,7 @@ const _obtenerClima = (manana) => {
     const code  = data.daily.weathercode[idx];
     const precip = parseFloat(data.daily.precipitation_sum[idx] || 0);
 
-    const desc   = _descWeatherCode(code);
+    const desc   = _descWeatherCode_(code);
     const lluvia = precip > 0.5 ? ` | ${precip.toFixed(1)}mm` : '';
     return `${desc} ${min}°-${max}°C${lluvia}`;
   } catch (e) {
