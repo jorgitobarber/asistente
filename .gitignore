@@ -9,3 +9,10 @@ Thumbs.db
 # Credenciales y configuración local sensible
 *.env
 .env.local
+.local-backup/
+node_modules/
+.clasprc.json
+
+# Diagnóstico privado del entorno real
+DIAGNOSTICO_2026-10-02.md
+REPARACION_2026-10-02.md

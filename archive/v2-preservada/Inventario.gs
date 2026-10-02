@@ -5,7 +5,7 @@
  */
 
 const INVENTARIO_ALIASES = {
-  'Cera':         ['cera', 'ceras', 'cera de pelo', 'cera indian', 'indian cera'],
+  'Cera':         ['cera', 'ceras', 'cera de pelo', 'cera indian', 'indian cera', 'cera brillante', 'cera mate', 'ceras brillantes', 'ceras mate'],
   'Texturizador': ['texturizador', 'polvos', 'polvos texturizadores', 'texturizadores', 'polvo']
 };
 
@@ -114,15 +114,15 @@ const descontarProducto = (nombreProducto, cantidad) => {
       return { ok: false, alerta: false, mensajeAlerta: '' };
     }
     
-    const nuevoStock  = stockActual - cant;
-    const unidad      = data[fila][5] || 'unidad';
+    const nuevoStock = stockActual - cant;
+    const unidad     = data[fila][5] || 'unidad';
 
     sheet.getRange(fila + 1, 2).setValue(nuevoStock);
     console.log(`[INVENTARIO] ${canon}: ${stockActual} → ${nuevoStock}`);
 
     const alerta = nuevoStock <= stockMinimo;
     const mensajeAlerta = alerta
-      ? `\n\n⚠️ *Stock bajo de ${canon}:* quedan ${nuevoStock} ${unidad}${nuevoStock === 0 ? '. ¡AGOTADO! Considera comprar más.' : '. Considera reabastecerte.'}`
+      ? `\n\n⚠️ <b>Stock bajo de ${escapeHtml(canon)}:</b> quedan ${nuevoStock} ${unidad}${nuevoStock === 0 ? '. ¡AGOTADO! Considera comprar más.' : '. Considera reabastecerte.'}`
       : '';
 
     return { ok: true, alerta, mensajeAlerta };
@@ -136,7 +136,7 @@ const descontarProducto = (nombreProducto, cantidad) => {
 
 /**
  * Suma stock cuando Jorge compra productos.
- * Registra el gasto automáticamente en la hoja Gastos.
+ * Registra el gasto automáticamente en la hoja Gastos (nuevo schema 5 cols).
  */
 const reabastecer = (accion, chatId) => {
   try {
@@ -164,22 +164,22 @@ const reabastecer = (accion, chatId) => {
 
     sheet.getRange(fila + 1, 2).setValue(nuevoStock);
 
-    // Registrar en Gastos
+    // Registrar en Gastos (nueva schema: [fecha, hora, categoría, descripción, monto])
     const ss    = SpreadsheetApp.openById(getSheetId());
     const hoy   = new Date();
     const fecha = hoy.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
     const hora  = hoy.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
-    const sheetG = _getOrCreateSheet(ss, 'Gastos', ['fecha', 'hora', 'descripción', 'monto']);
-    sheetG.appendRow([fecha, hora, `Reabastecimiento ${canon} x${cantidad} (${data[fila][6]})`, costoTotal]);
+    const sheetG = _getOrCreateSheet(ss, 'Gastos', ['fecha', 'hora', 'categoría', 'descripción', 'monto']);
+    sheetG.appendRow([fecha, hora, 'Insumos', `Reabastecimiento ${canon} x${cantidad} (${data[fila][6]})`, costoTotal]);
 
     console.log(`[INVENTARIO] Reabastecido ${canon}: +${cantidad} → stock ${nuevoStock}. Gasto: $${costoTotal}`);
 
     sendTelegramMessage(chatId,
       `✅ Inventario actualizado!\n\n` +
-      `📦 ${canon} — ${data[fila][6]}\n` +
-      `➕ +${cantidad} unidades → Stock total: *${nuevoStock}*\n` +
+      `📦 ${escapeHtml(canon)} — ${data[fila][6]}\n` +
+      `➕ +${cantidad} unidades → Stock total: <b>${nuevoStock}</b>\n` +
       `💸 Gasto: $${costoTotal.toLocaleString('es-CL')}\n` +
-      `📈 Margen potencial si vendes todo: $${margenTotal.toLocaleString('es-CL')}`
+      `📈 Margen potencial: $${margenTotal.toLocaleString('es-CL')}`
     );
   } catch (e) {
     console.error(`[INVENTARIO] Error en reabastecer: ${e.message}`);
@@ -236,7 +236,7 @@ const registrarVentaProductoDirecta = (accion, chatId) => {
 
     sendTelegramMessage(chatId,
       `✅ Venta registrada!\n\n` +
-      `📦 ${canon} x${cantidad}\n` +
+      `📦 ${escapeHtml(canon)} x${cantidad}\n` +
       `💰 $${total.toLocaleString('es-CL')}\n` +
       `📊 Stock restante: ${nuevoStock}${mensajeAlerta}`
     );
@@ -257,7 +257,7 @@ const obtenerResumenInventario = () => {
     const data = _getHojaInventario().getDataRange().getValues();
     if (data.length <= 1) return '';
 
-    let texto = '';
+    let texto   = '';
     let hayBajos = false;
 
     data.slice(1).forEach(r => {
@@ -275,6 +275,94 @@ const obtenerResumenInventario = () => {
   } catch (e) {
     console.error('[INVENTARIO] Error en obtenerResumenInventario: ' + e.message);
     return '';
+  }
+};
+
+// ─── Consultar stock ───────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el stock actual de todos los productos en formato limpio.
+ * NO llama a Gemini — responde directo desde la hoja para evitar loops.
+ */
+const consultarInventario = () => {
+  try {
+    const data = _getHojaInventario().getDataRange().getValues();
+    if (data.length <= 1) {
+      return { ok: false, mensaje: '⚠️ No hay productos cargados en el inventario.' };
+    }
+
+    let msg = '📦 <b>Stock actual</b>\n\n';
+    data.slice(1).forEach(r => {
+      const nombre = String(r[0] || '');
+      const stock  = parseInt(r[1]) || 0;
+      const min    = parseInt(r[2]) || 2;
+      const unidad = r[5] || 'unidades';
+      const emoji  = stock === 0 ? '🚨' : stock <= min ? '⚠️' : '✅';
+      msg += `${emoji} <b>${escapeHtml(nombre)}</b>: ${stock} ${unidad}`;
+      if (stock === 0)       msg += ' — AGOTADO';
+      else if (stock <= min) msg += ' (bajo mínimo)';
+      msg += '\n';
+    });
+
+    msg += '\n💡 Para actualizar: <i>"actualiza el stock: ceras 6, polvos 1"</i>';
+    console.log('[INVENTARIO] Stock consultado.');
+    return { ok: true, mensaje: msg };
+  } catch (e) {
+    console.error(`[INVENTARIO] Error en consultarInventario: ${e.message}`);
+    return { ok: false, mensaje: `❌ No pude consultar el inventario: ${escapeHtml(e.message)}` };
+  }
+};
+
+/**
+ * Actualiza el stock a valores exactos (REEMPLAZA, no suma).
+ * Para recuentos manuales: "el stock actual es: ceras 6, polvos 1".
+ * DIFERENCIA con REABASTECER: no registra gasto, solo corrige la cifra.
+ */
+const actualizarStock = (accion) => {
+  try {
+    const sheet           = _getHojaInventario();
+    const data            = sheet.getDataRange().getValues();
+    const actualizaciones = accion.actualizaciones || [];
+
+    if (actualizaciones.length === 0) {
+      return { ok: false, mensaje: '⚠️ No entendí qué stock actualizar. Di algo como "actualiza el stock: ceras 6, polvos 1".' };
+    }
+
+    const resultados = [];
+    actualizaciones.forEach(a => {
+      const canon = _normalizarProductoInventario(String(a.producto || ''));
+      if (!canon) {
+        resultados.push(`⚠️ No reconocí: "${escapeHtml(String(a.producto))}"`);
+        return;
+      }
+      const fila = _buscarFilaProducto(canon, data);
+      if (fila < 0) {
+        resultados.push(`⚠️ "${escapeHtml(canon)}" no está en inventario`);
+        return;
+      }
+      const anterior = parseInt(data[fila][1]) || 0;
+      const nueva    = Math.max(0, parseInt(a.cantidad) || 0);
+      sheet.getRange(fila + 1, 2).setValue(nueva);
+      resultados.push(`✅ <b>${escapeHtml(canon)}</b>: ${anterior} → ${nueva}`);
+      console.log(`[INVENTARIO] Stock seteado: ${canon} ${anterior} → ${nueva}`);
+    });
+
+    // Leer estado final actualizado
+    const fresh = sheet.getDataRange().getValues();
+    let resumen = '';
+    fresh.slice(1).forEach(r => {
+      const s = parseInt(r[1]) || 0;
+      const emoji = s === 0 ? '🚨' : s <= (parseInt(r[2]) || 2) ? '⚠️' : '✅';
+      resumen += `${emoji} ${r[0]}: ${s} ${r[5] || 'unidades'}\n`;
+    });
+
+    return {
+      ok: true,
+      mensaje: `📦 Stock actualizado:\n\n${resultados.join('\n')}\n\n<b>Estado actual:</b>\n${resumen}`
+    };
+  } catch (e) {
+    console.error(`[INVENTARIO] Error en actualizarStock: ${e.message}`);
+    return { ok: false, mensaje: `❌ No pude actualizar el stock: ${escapeHtml(e.message)}` };
   }
 };
 
